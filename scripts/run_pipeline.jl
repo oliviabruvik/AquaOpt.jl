@@ -1,6 +1,5 @@
 include("../src/cleaning.jl")
 include("../src/optimize_mdp.jl")
-include("../src/optimize_sarsop.jl")
 include("../src/plot_views.jl")
 include("../src/utils.jl")
 

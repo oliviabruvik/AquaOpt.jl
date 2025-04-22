@@ -65,7 +65,7 @@ function POMDPs.transition(mdp::SeaLiceMDP, s::SeaLiceState, a::Action)
     rho = a == Treatment ? mdp.rho : 0.0
     next_sea_lice_mean = (1-rho) * exp(growth_rate) * s.SeaLiceLevel
     
-    std_dev = 0.2
+    std_dev = 1.0
     points = [
         next_sea_lice_mean - 2*std_dev,
         next_sea_lice_mean - std_dev,
@@ -119,7 +119,7 @@ function mdp_optimize(df::DataFrame)
     return policy
 end
 
-# Add heuristic policy for comparison
+# Add heuristic policy
 struct HeuristicPolicy{P<:MDP} <: Policy
     mdp::P
 end
