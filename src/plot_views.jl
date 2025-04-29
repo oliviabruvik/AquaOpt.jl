@@ -1,5 +1,3 @@
-module PlotViews
-
 using Plots
 plotlyjs()  # Set the backend to PlotlyJS
 
@@ -34,6 +32,4 @@ function plot_mdp_results(results, title)
         colorbar=true # Explicitly show colorbar
     )          
     return p
-end
-
 end

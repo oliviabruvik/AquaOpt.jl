@@ -1,5 +1,3 @@
-module OptimizeMDP
-
 using DataFrames
 using DiscreteValueIteration
 import Distributions: Normal, Uniform
@@ -12,7 +10,7 @@ using QMDP
 using QuickPOMDPs
 using SARSOP
 
-# # Define the state
+# Define the state
 struct SeaLiceState
 	SeaLiceLevel::Float64
 end
@@ -146,7 +144,8 @@ function find_policies_across_lambdas(lambda_values; solver)
     return policies
 end
 
-function evaluate_policy(policies_dict; episodes=100, steps_per_episode=50)
+# Calculate average cost and average sea lice level for each lambda
+function calculate_avg_rewards(policies_dict; episodes=100, steps_per_episode=50)
     results = DataFrame(lambda=Float64[], avg_treatment_cost=Float64[], avg_sealice=Float64[])
     
     for (λ, (policy, pomdp, mdp)) in pairs(policies_dict)
@@ -163,18 +162,7 @@ function evaluate_policy(policies_dict; episodes=100, steps_per_episode=50)
     return results
 end
 
-function create_heuristic_policy_dict(lambda_values)
-    policies = Dict{Float64, Tuple{Policy, SeaLiceMDP, MDP}}()
-
-    for λ in lambda_values
-        pomdp = SeaLiceMDP(lambda=λ)
-        mdp = UnderlyingMDP(pomdp)
-        policy = HeuristicPolicy(mdp)
-        policies[λ] = (policy, pomdp, mdp)
-    end
-    return policies
-end
-
+# Run simulations of policy passed in
 function run_simulation(policy, mdp, pomdp, episodes=100, steps_per_episode=50)
     
     total_cost = 0.0
@@ -202,6 +190,7 @@ struct HeuristicPolicy{P<:MDP} <: Policy
     mdp::P
 end
 
+# Heuristic action
 function POMDPs.action(policy::HeuristicPolicy, s::SeaLiceState)
     if s.SeaLiceLevel > 0.5
         return Treatment
@@ -210,5 +199,15 @@ function POMDPs.action(policy::HeuristicPolicy, s::SeaLiceState)
     end
 end
 
+# Create heuristic policy dict
+function create_heuristic_policy_dict(lambda_values)
+    policies = Dict{Float64, Tuple{Policy, SeaLiceMDP, MDP}}()
 
+    for λ in lambda_values
+        pomdp = SeaLiceMDP(lambda=λ)
+        mdp = UnderlyingMDP(pomdp)
+        policy = HeuristicPolicy(mdp)
+        policies[λ] = (policy, pomdp, mdp)
+    end
+    return policies
 end
