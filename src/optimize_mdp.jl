@@ -8,7 +8,7 @@ using POMDPs
 using POMDPTools
 using QMDP
 using QuickPOMDPs
-using SARSOP
+using NativeSARSOP
 
 # Define the state
 struct SeaLiceState
@@ -52,6 +52,9 @@ end
 # POMDP interface functions
 POMDPs.actions(mdp::SeaLiceMDP) = [NoTreatment, Treatment]
 POMDPs.states(mdp::SeaLiceMDP) = [SeaLiceState(round(i, digits=1)) for i in 0:0.1:10]
+POMDPs.observations(mdp::SeaLiceMDP) = [SeaLiceObservation(round(i, digits=1)) for i in 0:0.1:10]
+POMDPs.isterminal(mdp::SeaLiceMDP, s::SeaLiceState) = false
+POMDPs.discount(mdp::SeaLiceMDP) = mdp.discount_factor
 
 # stateindex and actionindex functions
 function POMDPs.stateindex(mdp::SeaLiceMDP, s::SeaLiceState)
@@ -61,6 +64,11 @@ end
 # Convert action to index (1 for NoTreatment, 2 for Treatment)
 function POMDPs.actionindex(mdp::SeaLiceMDP, a::Action)
     return Int(a) + 1
+end
+
+# Convert observation to index
+function POMDPs.obsindex(mdp::SeaLiceMDP, o::SeaLiceObservation)
+    return clamp(round(Int, o.SeaLiceLevel * 10) + 1, 1, 101)
 end
 
 function POMDPs.transition(mdp::SeaLiceMDP, s::SeaLiceState, a::Action)
@@ -97,10 +105,8 @@ function POMDPs.reward(mdp::SeaLiceMDP, s::SeaLiceState, a::Action)
     end
 end
 
-POMDPs.discount(mdp::SeaLiceMDP) = mdp.discount_factor
-
+# Create a uniform distribution over initial states from 0.0 to 1.0
 function POMDPs.initialstate(mdp::SeaLiceMDP)
-    # Create a uniform distribution over initial states from 0.0 to 1.0
     states = [SeaLiceState(round(i, digits=1)) for i in 0:0.1:1.0]
     probs = ones(length(states)) / length(states)
     return SparseCat(states, probs)
@@ -128,14 +134,18 @@ function POMDPs.observation(mdp::SeaLiceMDP, a::Action, s::SeaLiceState)
     return SparseCat(observations, probs)
 end
 
-POMDPs.isterminal(mdp::SeaLiceMDP, s::SeaLiceState) = false
-
-function find_policies_across_lambdas(lambda_values; solver)
+function find_policies_across_lambdas(lambda_values; solver, convert_to_mdp=false)
     policies = Dict{Float64, Tuple{Policy, SeaLiceMDP, MDP}}()
     for λ in lambda_values
         pomdp = SeaLiceMDP(lambda=λ)
         mdp = UnderlyingMDP(pomdp)
-        policy = solve(solver, mdp)
+
+        # Convert to MDP if requested
+        if convert_to_mdp
+            policy = solve(solver, mdp)
+        else
+            policy = solve(solver, pomdp)
+        end
         policies[λ] = (policy, pomdp, mdp)
 
         # save policy
@@ -171,11 +181,27 @@ function run_simulation(policy, mdp, pomdp, episodes=100, steps_per_episode=50)
 
     for _ in 1:episodes
         s = rand(initialstate(mdp))
+        b = Deterministic(s)  # For MDP policies, use a deterministic belief
+        
         for _ in 1:steps_per_episode
-            a = action(policy, s)
+            if policy isa AlphaVectorPolicy
+                a = action(policy, b)
+            else
+                a = action(policy, s)
+            end
+            
+            # Apply action and get reward
             total_cost += (a == Treatment ? pomdp.costOfTreatment : 0.0)
             total_sealice += s.SeaLiceLevel
+            
+            # Transition to next state
             s = rand(transition(pomdp, s, a))
+            
+            # Update belief
+            if policy isa AlphaVectorPolicy
+                o = rand(observation(pomdp, a, s))
+                b = update_belief(b, a, o, pomdp)
+            end
         end
     end
 
@@ -183,6 +209,16 @@ function run_simulation(policy, mdp, pomdp, episodes=100, steps_per_episode=50)
     avg_sealice = total_sealice / total_steps
 
     return avg_cost, avg_sealice
+end
+
+
+
+# Helper function to update belief state
+function update_belief(b, a, o, pomdp)
+    # TODO: Update belief based on observation (avoided now because of complexity)
+    # TODO: Review discretization of state space (now 0.1)
+    # TODO: Implement particle filter for belief update?
+    return Deterministic(SeaLiceState(o.SeaLiceLevel))
 end
 
 # Add heuristic policy

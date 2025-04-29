@@ -8,6 +8,8 @@ include("../src/utils.jl")
 using DiscreteValueIteration
 using POMDPs
 using Plots
+using NativeSARSOP: SARSOPSolver
+
 ENV["PLOTS_BROWSER"] = "true"
 
 # Load and clean data
@@ -28,14 +30,15 @@ heuristic_results = calculate_avg_rewards(heuristic_policies_dict, episodes=num_
 heuristic_mdp_results_plot = plot_mdp_results(heuristic_results, "Heuristic Policy")
 savefig(heuristic_mdp_results_plot, "results/figures/heuristic_mdp_results_$(num_episodes)_$(steps_per_episode).png")
 
-# Create MDP policies
-mdp_policies_dict = find_policies_across_lambdas(lambda_values, solver=ValueIterationSolver(max_iterations=30))
+# Find MDP policies
+mdp_policies_dict = find_policies_across_lambdas(lambda_values, solver=ValueIterationSolver(max_iterations=30), convert_to_mdp=true)
 mdp_results = calculate_avg_rewards(mdp_policies_dict, episodes=num_episodes, steps_per_episode=steps_per_episode)
 mdp_results_plot = plot_mdp_results(mdp_results, "MDP Policy")
 savefig(mdp_results_plot, "results/figures/mdp_results_$(num_episodes)_$(steps_per_episode).png")
 
-# Create SARSOP policies
-sarsop_policies_dict = create_sarsop_policy_dict(lambda_values)
+# Find SARSOP policies
+sarsop_policies_dict = find_policies_across_lambdas(lambda_values, solver=SARSOPSolver(; max_time=10.0), convert_to_mdp=false)
 sarsop_results = calculate_avg_rewards(sarsop_policies_dict, episodes=num_episodes, steps_per_episode=steps_per_episode)
 sarsop_results_plot = plot_mdp_results(sarsop_results, "SARSOP Policy")
 savefig(sarsop_results_plot, "results/figures/sarsop_results_$(num_episodes)_$(steps_per_episode).png")
+
