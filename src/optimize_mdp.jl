@@ -247,3 +247,14 @@ function create_heuristic_policy_dict(lambda_values)
     end
     return policies
 end
+
+function test_optimizer(lambda_values, solver; episodes=100, steps_per_episode=50, convert_to_mdp=false, plot_name="MDP Policy")
+    if solver isa Nothing
+        policies_dict = create_heuristic_policy_dict(lambda_values)
+    else
+        policies_dict = find_policies_across_lambdas(lambda_values, solver=solver, convert_to_mdp=convert_to_mdp)
+    end
+    results = calculate_avg_rewards(policies_dict, episodes=episodes, steps_per_episode=steps_per_episode)
+    results_plot = plot_mdp_results(results, plot_name)
+    savefig(results_plot, "results/figures/$(plot_name)_$(episodes)_$(steps_per_episode).png")
+end
