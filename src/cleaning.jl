@@ -1,7 +1,7 @@
-module Cleaning
-
 using CSV, DataFrames
 
+# Data downloaded from https://lusedata.hubocean.earth/
+# Data limited to production area 5: Stadt til Hustadvika for 2012-2025
 function load_and_clean(path::String)
 
     # Load data
@@ -55,6 +55,4 @@ end
 function discretize_sea_lice_levels(df)
 	df.adult_sealice = round.(df.adult_sealice, digits=1)
 	return df
-end
-
 end
