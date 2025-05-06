@@ -11,7 +11,7 @@ using Plots
 # Policy Generation
 # ----------------------------
 "Train a policy for each lambda using the given solver."
-function find_policies_across_lambdas(lambda_values; solver, convert_to_mdp=false)
+function find_policies_across_lambdas(lambda_values; solver, convert_to_mdp=false, solver_name="")
     policies = Dict{Float64, Tuple{Policy, SeaLiceMDP, MDP}}()
 
     for λ in lambda_values
@@ -20,7 +20,11 @@ function find_policies_across_lambdas(lambda_values; solver, convert_to_mdp=fals
         policy = convert_to_mdp ? solve(solver, mdp) : solve(solver, pomdp)
         
         policies[λ] = (policy, pomdp, mdp)
-        save("results/policies/sea_lice_mdp_policy_$(λ).jld2", "policy", policy)
+
+        # Save the policy, pomdp, and mdp to a file
+        save("results/policies/$(solver_name)_sea_lice_mdp_policy_$(λ).jld2", "policy", policy)
+        save("results/policies/$(solver_name)_sea_lice_pomdp_$(λ).jld2", "pomdp", pomdp)
+        save("results/policies/$(solver_name)_sea_lice_mdp_$(λ).jld2", "mdp", mdp)
     end
 
     return policies
@@ -58,6 +62,9 @@ function run_simulation(policy, mdp, pomdp, episodes=100, steps_per_episode=50)
             
             # Transition to next state
             s = rand(transition(pomdp, s, a))
+
+            # TODO: save the state and action to a file
+            # TODO: use discrete updator
             
             # Update belief
             if policy isa AlphaVectorPolicy
@@ -80,10 +87,15 @@ function update_belief(b, a, o, pomdp)
 end
 
 "Calculate average cost and average sea lice level for each lambda."
-function calculate_avg_rewards(policies_dict; episodes=100, steps_per_episode=50)
+function calculate_avg_rewards(lambda_values; episodes=100, steps_per_episode=50, solver_name="")
     results = DataFrame(lambda=Float64[], avg_treatment_cost=Float64[], avg_sealice=Float64[])
     
-    for (λ, (policy, pomdp, mdp)) in pairs(policies_dict)
+    for λ in lambda_values
+        
+        policy = load("results/policies/$(solver_name)_sea_lice_mdp_policy_$(λ).jld2", "policy")
+        pomdp = load("results/policies/$(solver_name)_sea_lice_pomdp_$(λ).jld2", "pomdp")
+        mdp = load("results/policies/$(solver_name)_sea_lice_mdp_$(λ).jld2", "mdp")
+
         avg_cost, avg_sealice = run_simulation(policy, mdp, pomdp, episodes, steps_per_episode)
         push!(results, (λ, avg_cost, avg_sealice))
     end
@@ -97,23 +109,24 @@ end
 # ----------------------------
 struct HeuristicPolicy{P<:MDP} <: Policy
     mdp::P
+    threshold::Float64
 end
 
 # Heuristic action
 function POMDPs.action(policy::HeuristicPolicy, s::SeaLiceState)
-    return s.SeaLiceLevel > 0.5 ? Treatment : NoTreatment
+    return s.SeaLiceLevel > policy.threshold ? Treatment : NoTreatment
 end
 
 # ----------------------------
 # Optimizer Wrapper
 # ----------------------------
 function test_optimizer(lambda_values, solver; episodes=100, steps_per_episode=50, convert_to_mdp=false, plot_name="MDP Policy")
-    if solver isa Nothing
+    if solver isa Nothing # No special cases - 
         policies_dict = create_heuristic_policy_dict(lambda_values)
     else
-        policies_dict = find_policies_across_lambdas(lambda_values, solver=solver, convert_to_mdp=convert_to_mdp)
+        policies_dict = find_policies_across_lambdas(lambda_values, solver=solver, convert_to_mdp=convert_to_mdp, solver_name=plot_name)
     end
-    results = calculate_avg_rewards(policies_dict, episodes=episodes, steps_per_episode=steps_per_episode)
+    results = calculate_avg_rewards(lambda_values, episodes=episodes, steps_per_episode=steps_per_episode, solver_name=plot_name)
 
     # Save results
     @save "results/data/$(plot_name)_$(episodes)_$(steps_per_episode).jld2" results
