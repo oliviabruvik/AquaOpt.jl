@@ -57,17 +57,17 @@ function plot_mdp_results_overlay(num_episodes, steps_per_episode)
     
     # Define colors for each policy
     policy_colors = Dict(
-        "Heuristic Policy" => :blue,
-        "VI Policy" => :red,
-        "SARSOP Policy" => :green,
-        "QMDP Policy" => :purple
+        "Heuristic_Policy" => :blue,
+        "VI_Policy" => :red,
+        "SARSOP_Policy" => :green,
+        "QMDP_Policy" => :purple
     )
     
     # Load and plot each policy's results
     for (policy_name, color) in policy_colors
         try
             # Load the results from the JLD2 file
-            @load "results/data/$(policy_name)_$(num_episodes)_$(steps_per_episode).jld2" results
+            @load "results/data/$(policy_name)/results_$(num_episodes)_episodes_$(steps_per_episode)_steps.jld2" results
             
             # Sort the data by treatment cost
             sort_indices = sortperm(results.avg_treatment_cost)
@@ -84,12 +84,12 @@ function plot_mdp_results_overlay(num_episodes, steps_per_episode)
                 label=policy_name
             )
         catch e
-            println("Warning: Could not load results for $policy_name: $e")
+            @warn "Could not load results for $policy: $e"
         end
     end
     
     # Save the figure
-    savefig(p, "results/figures/all_policies_overlay_$(num_episodes)_$(steps_per_episode).png")
+    savefig(p, "results/figures/all_policies_overlay_$(num_episodes)_episodes_$(steps_per_episode)_steps.png")
     return p
 end
 
@@ -108,17 +108,17 @@ function plot_policy_sealice_levels(num_episodes, steps_per_episode)
     
     # Define colors and markers for each policy
     policy_styles = Dict(
-        "Heuristic Policy" => (color=:blue, marker=:circle),
-        "VI Policy" => (color=:red, marker=:square),
-        "SARSOP Policy" => (color=:green, marker=:diamond),
-        "QMDP Policy" => (color=:purple, marker=:dtriangle)
+        "Heuristic_Policy" => (color=:blue, marker=:circle),
+        "VI_Policy" => (color=:red, marker=:square),
+        "SARSOP_Policy" => (color=:green, marker=:diamond),
+        "QMDP_Policy" => (color=:purple, marker=:dtriangle)
     )
     
     # Load and plot results for each policy
     for (policy_name, style) in policy_styles
         try
             # Load the results from the JLD2 file
-            @load "results/data/$(policy_name)_$(num_episodes)_$(steps_per_episode).jld2" results
+            @load "results/data/$(policy_name)/results_$(num_episodes)_episodes_$(steps_per_episode)_steps.jld2" results
             
             # Add the scatter plot to the main plot
             scatter!(
@@ -131,7 +131,7 @@ function plot_policy_sealice_levels(num_episodes, steps_per_episode)
                 alpha=0.7
             )
         catch e
-            println("Warning: Could not load results for $policy_name: $e")
+            @warn "Could not load results for $policy_name: $e"
         end
     end
     savefig(p, "results/figures/policy_sealice_comparison_$(num_episodes)_$(steps_per_episode).png")
