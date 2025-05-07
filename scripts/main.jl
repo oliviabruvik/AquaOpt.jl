@@ -10,24 +10,44 @@ ENV["PLOTS_BACKEND"] = "plotlyjs"
 # Import required packages
 using Logging
 using DiscreteValueIteration
+using GridInterpolations
 using NativeSARSOP: SARSOPSolver
 using POMDPs
 using Plots
+using LocalFunctionApproximation
+using LocalApproximationValueIteration
 
 plotlyjs()  # Activate Plotly backend
 
 # ----------------------------
 # Configuration
 # ----------------------------
-const CONFIG = Dict(
-    :lambda_values => 0.0:0.2:1.0, # 0.0:0.05:1.0
-    :num_episodes => 100, # 1000,
-    :steps_per_episode => 50 # 100
+struct Config
+    lambda_values::Vector{Float64} # 0.0:0.05:1.0
+    num_episodes::Int # 1000
+    steps_per_episode::Int # 100
+    policies_dir::String
+    figures_dir::String
+    data_dir::String
+end
+
+const CONFIG = Config(
+    collect(0.0:0.2:1.0), # 0.0:0.05:1.0
+    10, # 1000
+    5,  # 100
+    joinpath("results", "policies"),
+    joinpath("results", "figures"),
+    joinpath("results", "data")
 )
 
 # Create results directories
-mkpath("results/figures")
-mkpath("results/data")
+mkpath(CONFIG.policies_dir)
+mkpath(CONFIG.figures_dir)
+mkpath(CONFIG.data_dir)
+
+# Create interpolation points for sea lice levels (0.0 to 10.0)
+grid = RectangleGrid(range(0.0, 10.0, length=100))
+interp = LocalGIFunctionApproximator(grid)
 
 # ----------------------------
 # Main function
@@ -39,29 +59,22 @@ function main(run_algorithms=false)
     sealice_levels_over_time_plot = plot_sealice_levels_over_time(df)
 
     if run_algorithms
-        policies = [
-            ("Heuristic Policy", ValueIterationSolver(max_iterations=30), true),
-            ("VI Policy", ValueIterationSolver(max_iterations=30), true),
-            ("SARSOP Policy", SARSOPSolver(max_time=10.0), false),
-            ("QMDP Policy", QMDPSolver(max_iterations=30), false)
+        algorithms = [
+            Algorithm(ValueIterationSolver(max_iterations=30), true, "Heuristic_Policy", 0.5),
+            # Algorithm(LocalApproximationValueIterationSolver(interp, verbose=true, max_iterations=1000, is_mdp_generative=false), true, "VI_Policy", nothing),
+            Algorithm(SARSOPSolver(max_time=10.0), false, "SARSOP_Policy", nothing),
+            Algorithm(QMDPSolver(max_iterations=30), false, "QMDP_Policy", nothing)
         ]
 
-        for (policy_name, solver, convert_to_mdp) in policies
-            @info "Running $policy_name"
-            test_optimizer(
-                CONFIG[:lambda_values],
-                solver,
-                episodes=CONFIG[:num_episodes],
-                steps_per_episode=CONFIG[:steps_per_episode],
-                convert_to_mdp=convert_to_mdp,
-                plot_name=policy_name
-            )
+        for algo in algorithms
+            @info "Running $(algo.solver_name)"
+            test_optimizer(algo, CONFIG)
         end
     end
 
     @info "Generating result plots"
-    overlay_plot = plot_mdp_results_overlay(CONFIG[:num_episodes], CONFIG[:steps_per_episode])
-    comparison_plot = plot_policy_sealice_levels(CONFIG[:num_episodes], CONFIG[:steps_per_episode])
+    overlay_plot = plot_mdp_results_overlay(CONFIG.num_episodes, CONFIG.steps_per_episode)
+    comparison_plot = plot_policy_sealice_levels(CONFIG.num_episodes, CONFIG.steps_per_episode)
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
