@@ -14,22 +14,23 @@ struct Algorithm{S<:Solver}
     solver::S
     convert_to_mdp::Bool
     solver_name::String
-    heuristic_threshold::Float64
+    heuristic_threshold::Union{Float64, Nothing}
 end
 
 # ----------------------------
 # Policy Saving & Loading
 # ----------------------------
-function save_policy(policy, pomdp, mdp, solver_name, lambda)
-    save("results/policies/$(solver_name)/$(lambda)/policy.jld2", "policy", policy)
-    save("results/policies/$(solver_name)/$(lambda)/pomdp.jld2", "pomdp", pomdp)
-    save("results/policies/$(solver_name)/$(lambda)/mdp.jld2", "mdp", mdp)
+function save_policy(policy, pomdp, mdp, solver_name, lambda, config)
+    mkpath(config.policies_dir)
+    save(joinpath(config.policies_dir, "$(solver_name)/$(lambda)_lambda_policy.jld2"), "policy", policy)
+    save(joinpath(config.policies_dir, "$(solver_name)/$(lambda)_lambda_pomdp.jld2"), "pomdp", pomdp)
+    save(joinpath(config.policies_dir, "$(solver_name)/$(lambda)_lambda_mdp.jld2"), "mdp", mdp)
 end
 
-function load_policy(solver_name, lambda)
-    policy = load("results/policies/$(solver_name)_sea_lice_mdp_policy_$(lambda).jld2", "policy")
-    pomdp = load("results/policies/$(solver_name)_sea_lice_pomdp_$(lambda).jld2", "pomdp")
-    mdp = load("results/policies/$(solver_name)_sea_lice_mdp_$(lambda).jld2", "mdp")
+function load_policy(solver_name, lambda, config)
+    policy = load(joinpath(config.policies_dir, "$(solver_name)/$(lambda)_lambda_policy.jld2"), "policy")
+    pomdp = load(joinpath(config.policies_dir, "$(solver_name)/$(lambda)_lambda_pomdp.jld2"), "pomdp")
+    mdp = load(joinpath(config.policies_dir, "$(solver_name)/$(lambda)_lambda_mdp.jld2"), "mdp")
     return (policy, pomdp, mdp)
 end
 
@@ -119,7 +120,7 @@ function test_optimizer(algorithm, config)
 
         # Generate policy
         policy, pomdp, mdp = generate_policy(algorithm, λ)
-        save_policy(policy, pomdp, mdp, algorithm.solver_name, λ)
+        save_policy(policy, pomdp, mdp, algorithm.solver_name, λ, config)
 
         # Run simulation to calculate average cost and average sea lice level
         avg_cost, avg_sealice = run_simulation(policy, mdp, pomdp, config)
@@ -130,6 +131,8 @@ function test_optimizer(algorithm, config)
     results_plot = plot_mdp_results(results, algorithm.solver_name)
     
     # Save results
-    @save "results/data/$(algorithm.solver_name)_$(config.num_episodes)_$(config.steps_per_episode).jld2" results
-    savefig(results_plot, "results/figures/$(algorithm.solver_name)_$(config.num_episodes)_$(config.steps_per_episode).png")
+    mkpath(joinpath(config.figures_dir, algorithm.solver_name))
+    mkpath(joinpath(config.data_dir, algorithm.solver_name))
+    @save joinpath(config.data_dir, "$(algorithm.solver_name)/results_$(config.num_episodes)_episodes_$(config.steps_per_episode)_steps.jld2") results
+    savefig(results_plot, joinpath(config.figures_dir, "$(algorithm.solver_name)/results_$(config.num_episodes)_episodes_$(config.steps_per_episode)_steps.png"))
 end
