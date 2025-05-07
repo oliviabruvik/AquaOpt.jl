@@ -41,12 +41,12 @@ function generate_policy(algorithm, λ)
     pomdp = SeaLiceMDP(lambda=λ)
     mdp = UnderlyingMDP(pomdp)
 
-    if algorithm.solver_name == "Heuristic Policy"
-        policy = HeuristicPolicy(mdp, algorithm.heuristic_threshold)
+    policy = if algorithm.solver_name == "Heuristic Policy"
+        HeuristicPolicy(mdp, algorithm.heuristic_threshold)
     elseif algorithm.convert_to_mdp
-        policy = solve(algorithm.solver, mdp)
+        solve(algorithm.solver, mdp)
     else
-        policy = solve(algorithm.solver, pomdp)
+        solve(algorithm.solver, pomdp)
     end
     
     return (policy, pomdp, mdp)
@@ -55,45 +55,67 @@ end
 # ----------------------------
 # Simulation & Evaluation
 # ----------------------------
-function run_simulation(policy, mdp, pomdp, config)
-    
-    total_cost, total_sealice = 0.0, 0.0
-    total_steps = config.num_episodes * config.steps_per_episode
+function simulate(sim::RolloutSimulator, pomdp::POMDP, policy::Policy, updater::Updater, initial_belief, s, algorithm)
+    disc = 1.0
+    r_total = 0.0
+    total_cost = 0.0
+    total_sealice = 0.0
+    steps = 1
 
-    for _ in 1:config.num_episodes
-        s = rand(initialstate(mdp))
-        b = Deterministic(s)
+    b = initialize_belief(updater, initial_belief)
+
+    while disc > sim.eps && !isterminal(pomdp, s) && steps <= sim.max_steps
         
-        for _ in 1:config.steps_per_episode
-            a = policy isa AlphaVectorPolicy ? action(policy, b) : action(policy, s)
-            total_cost += (a == Treatment ? pomdp.costOfTreatment : 0.0)
-            total_sealice += s.SeaLiceLevel
-            
-            # Transition to next state
-            s = rand(transition(pomdp, s, a))
-
-            # TODO: save the state and action to a file
-            # TODO: use discrete updator
-            
-            # Update belief
-            if policy isa AlphaVectorPolicy
-                o = rand(observation(pomdp, a, s))
-                b = update_belief(b, a, o, pomdp)
-            end
+        # Choose next action
+        a = if algorithm.convert_to_mdp
+            action(policy, s)  # Use concrete state for MDP policies
+        else
+            action(policy, b)  # Use belief state for POMDP policies
         end
+        
+        # Track costs and sea lice levels
+        total_cost += (a == Treatment ? pomdp.costOfTreatment : 0.0)
+        total_sealice += s.SeaLiceLevel
+        
+        # Transition to next state
+        sp, o, r = @gen(:sp,:o,:r)(pomdp, s, a, sim.rng)
+        r_total += disc*r
+
+        # Update belief
+        s = sp
+        bp = update(updater, b, a, o)
+        b = bp
+
+        disc *= discount(pomdp)
+        steps += 1
     end
 
-    return total_cost / total_steps, total_sealice / total_steps
+    return r_total, total_cost / steps, total_sealice / steps
 end
 
+function run_simulation(policy, mdp, pomdp, config, algorithm)
+    total_cost, total_sealice = 0.0, 0.0
+    total_reward = 0.0
+    
+    # Create simulator and updater
+    sim = RolloutSimulator(max_steps=config.steps_per_episode)
+    updater = DiscreteUpdater(pomdp)
+    
+    # Run simulation for each episode
+    for _ in 1:config.num_episodes
+        s = rand(initialstate(mdp))
+        initial_belief = Deterministic(s)
+        
+        reward, cost, sealice = simulate(sim, pomdp, policy, updater, initial_belief, s, algorithm)
+        total_reward += reward
+        total_cost += cost
+        total_sealice += sealice
+    end
 
-"Very simple belief updater (placeholder for future particle filter)."
-function update_belief(b, a, o, pomdp)
-    # TODO: Update belief based on observation (avoided now because of complexity)
-    # TODO: Review discretization of state space (now 0.1)
-    # TODO: Implement particle filter for belief update?
-    return Deterministic(SeaLiceState(o.SeaLiceLevel))
+    # Return averages
+    return total_cost / config.num_episodes, total_sealice / config.num_episodes
 end
+
 
 # ----------------------------
 # Heuristic Policy
@@ -123,7 +145,7 @@ function test_optimizer(algorithm, config)
         save_policy(policy, pomdp, mdp, algorithm.solver_name, λ, config)
 
         # Run simulation to calculate average cost and average sea lice level
-        avg_cost, avg_sealice = run_simulation(policy, mdp, pomdp, config)
+        avg_cost, avg_sealice = run_simulation(policy, mdp, pomdp, config, algorithm)
         push!(results, (λ, avg_cost, avg_sealice))
     end
 
