@@ -61,7 +61,8 @@ function main(run_algorithms=false)
     if run_algorithms
         algorithms = [
             Algorithm(ValueIterationSolver(max_iterations=30), true, "Heuristic_Policy", 0.5),
-            # Algorithm(LocalApproximationValueIterationSolver(interp, verbose=true, max_iterations=1000, is_mdp_generative=false), true, "VI_Policy", nothing),
+            Algorithm(ValueIterationSolver(max_iterations=30), true, "VI_Policy", nothing),
+            #Algorithm(LocalApproximationValueIterationSolver(interp, verbose=true, max_iterations=1000, is_mdp_generative=false), true, "VI_Policy", nothing),
             Algorithm(SARSOPSolver(max_time=10.0), false, "SARSOP_Policy", nothing),
             Algorithm(QMDPSolver(max_iterations=30), false, "QMDP_Policy", nothing)
         ]

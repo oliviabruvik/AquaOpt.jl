@@ -11,6 +11,7 @@ using NativeSARSOP
 using DiscreteValueIteration
 using POMDPLinter
 
+
 # -------------------------
 # Constants
 # -------------------------
@@ -73,6 +74,15 @@ POMDPs.isterminal(mdp::SeaLiceMDP, s::SeaLiceState) = false
 POMDPs.stateindex(::SeaLiceMDP, s::SeaLiceState) = clamp(round(Int, s.SeaLiceLevel * 10) + 1, 1, 101)
 POMDPs.actionindex(::SeaLiceMDP, a::Action) = clamp(Int(a) + 1, 1, 2)
 POMDPs.obsindex(::SeaLiceMDP, o::SeaLiceObservation) = clamp(round(Int, o.SeaLiceLevel * 10) + 1, 1, 101)
+
+# Required by LocalApproximationValueIteration
+function POMDPs.convert_s(::Type{Vector{Float64}}, s::SeaLiceState, mdp::SeaLiceMDP)
+    return [s.SeaLiceLevel]
+end
+
+function POMDPs.convert_s(::Type{SeaLiceState}, v::Vector{Float64}, mdp::SeaLiceMDP)
+    return SeaLiceState(v[1])
+end
 
 function POMDPs.transition(mdp::SeaLiceMDP, s::SeaLiceState, a::Action)
     μ = (1 - (a == Treatment ? mdp.rho : 0.0)) * exp(mdp.growthRate) * s.SeaLiceLevel

@@ -98,6 +98,10 @@ function POMDPs.action(policy::HeuristicPolicy, s::SeaLiceState)
     return s.SeaLiceLevel > policy.threshold ? Treatment : NoTreatment
 end
 
+function POMDPs.updater(policy::HeuristicPolicy)
+    return DiscreteUpdater(policy.pomdp)
+end
+
 # ----------------------------
 # Optimizer Wrapper
 # ----------------------------
