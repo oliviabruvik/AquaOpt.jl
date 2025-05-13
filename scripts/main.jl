@@ -29,6 +29,7 @@ struct Config
     policies_dir::String
     figures_dir::String
     data_dir::String
+    ekf_filter::Bool
 end
 
 const CONFIG = Config(
@@ -37,7 +38,8 @@ const CONFIG = Config(
     50, #5,  # 100
     joinpath("results", "policies"),
     joinpath("results", "figures"),
-    joinpath("results", "data")
+    joinpath("results", "data"),
+    false
 )
 
 # Create results directories

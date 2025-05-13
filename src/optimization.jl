@@ -73,12 +73,12 @@ function run_simulation(policy, mdp, pomdp, config, algorithm)
 
     # Create simulator
     sim = RolloutSimulator(max_steps=config.steps_per_episode)
-    updaterStruct = EKFUpdater(sim_pomdp, process_noise=STD_DEV, observation_noise=STD_DEV) # DiscreteUpdater()
-    updater = updaterStruct.ekf
+    updaterStruct = KFUpdater(sim_pomdp, process_noise=STD_DEV, observation_noise=STD_DEV)
+    updater = config.ekf_filter ? updaterStruct.ekf : updaterStruct.ukf
 
     # Run simulation for each episode
     for _ in 1:config.num_episodes
-
+        
         # Get initial state
         s = rand(initialstate(sim_pomdp))
 
@@ -100,7 +100,7 @@ end
 # ----------------------------
 # Simulation Helper Function
 # ----------------------------
-function simulate_helper(sim::RolloutSimulator, sim_pomdp::POMDP, policy::Policy, updater::ExtendedKalmanFilter, initial_belief, s)
+function simulate_helper(sim::RolloutSimulator, sim_pomdp::POMDP, policy::Policy, updater::Any, initial_belief, s)
     
     # Store histories
     action_hist = []
