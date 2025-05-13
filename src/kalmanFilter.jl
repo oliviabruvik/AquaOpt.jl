@@ -6,11 +6,13 @@ using Random
 
 include("SimulationPOMDP.jl")
 
-struct EKFUpdater
+struct KFUpdaterStruct
     ekf::ExtendedKalmanFilter
+    ukf::UnscentedKalmanFilter
     pomdp::SeaLiceSimMDP
 end
 
+# x is state, u is action
 function step(x, u)
     growth_rate = 1.2
     rho = 0.7
@@ -25,7 +27,7 @@ function observe(x, u)
 end
 
 # Extended Kalman Filter Updater
-function EKFUpdater(pomdp::SeaLiceSimMDP; process_noise=STD_DEV, observation_noise=STD_DEV)
+function KFUpdater(pomdp::SeaLiceSimMDP; process_noise=STD_DEV, observation_noise=STD_DEV)
     
     # Create noise matrices
     W = process_noise^2 * Matrix{Float64}(I, 1, 1)
@@ -35,14 +37,15 @@ function EKFUpdater(pomdp::SeaLiceSimMDP; process_noise=STD_DEV, observation_noi
     dmodel = NonlinearDynamicsModel(step, W)
     omodel = NonlinearObservationModel(observe, V)
 
-    # Create and return the EKF
+    # Create and return the KF
     ekf = ExtendedKalmanFilter(dmodel, omodel)
-    return EKFUpdater(ekf, pomdp)
+    ukf = UnscentedKalmanFilter(dmodel, omodel)
+    return KFUpdaterStruct(ekf, ukf, pomdp)
 end
 
 POMDPs.updater(policy::Policy, pomdp::SeaLiceSimMDP) = EKFUpdater(pomdp, process_noise=STD_DEV, observation_noise=STD_DEV)
 
-function POMDPs.initialize_belief(updater::EKFUpdater, dist::Any)
+function POMDPs.initialize_belief(updater::Union{ExtendedKalmanFilter, UnscentedKalmanFilter}, dist::Any)
     # Mimic DiscreteUpdater: initialize belief from distribution or sampled value
     if dist isa ImplicitDistribution
         # Sample to estimate mean and variance
@@ -57,25 +60,26 @@ function POMDPs.initialize_belief(updater::EKFUpdater, dist::Any)
         var_val = var(dist)
     end
 
-    # updater.ekf.x = [mean_val]
-    # updater.ekf.P = [var_val]
-    return Normal(mean_val, sqrt(var_val))
+    return GaussianBelief([mean_val], Matrix{Float64}(I, 1, 1) * sqrt(var_val))
 end
 
-function POMDPs.update(updater::EKFUpdater, belief::Normal, a::Action, o::SeaLiceObservation)
+function kalmanFilterUpdate(kf::Union{ExtendedKalmanFilter, UnscentedKalmanFilter}, belief::GaussianBelief, a::Action, o::SeaLiceObservation)
     
-    # Convert action to control input
-    u = [a == Treatment ? 1.0 : 0.0]
-    
-    # Predict step
-    updater.ekf = predict(updater.ekf, u)
-    
-    # Update step with observation
-    z = [o.SeaLiceLevel]
-    updater.ekf = update(updater.ekf, z)
+    # TODO:Update step with observation or simulated data?
+    # z = [o.SeaLiceLevel]
+
+    # Create action sequence
+    action_sequence = [[a == Treatment ? 1.0 : 0.0]]
+
+    # Simulate model
+    sim_states, sim_measurements = GaussianFilters.simulation(kf, belief, action_sequence)
+
+    # Run filter on simulated data
+    filtered_beliefs = run_filter(kf, belief, action_sequence, sim_measurements)
+
+    # Turn array of belief structs into simple tensors
+    μ, Σ = unpack(filtered_beliefs);
     
     # Return new belief as Normal distribution
-    mean_val = updater.ekf.x[1]
-    var_val = updater.ekf.P[1,1]
-    return Normal(mean_val, sqrt(var_val))
+    return GaussianBelief([μ[1]], Matrix{Float64}(I, 1, 1) * sqrt(Σ[1,1]))
 end
