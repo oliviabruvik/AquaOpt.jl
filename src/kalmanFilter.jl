@@ -63,23 +63,20 @@ function POMDPs.initialize_belief(updater::Union{ExtendedKalmanFilter, Unscented
     return GaussianBelief([mean_val], Matrix{Float64}(I, 1, 1) * sqrt(var_val))
 end
 
-function kalmanFilterUpdate(kf::Union{ExtendedKalmanFilter, UnscentedKalmanFilter}, belief::GaussianBelief, a::Action, o::SeaLiceObservation)
+function kalmanFilterUpdate(kf::Union{ExtendedKalmanFilter, UnscentedKalmanFilter}, b0::GaussianBelief, s::SeaLiceState, a::Action, o::SeaLiceObservation)
     
-    # TODO:Update step with observation or simulated data?
-    # z = [o.SeaLiceLevel]
-
     # Create action sequence
-    action_sequence = [[a == Treatment ? 1.0 : 0.0]]
+    action = [a == Treatment ? 1.0 : 0.0]
 
-    # Simulate model
-    sim_states, sim_measurements = GaussianFilters.simulation(kf, belief, action_sequence)
+    # Predict next state, using observation as initial state
+    xn = predict(kf.d, b0.μ, action, Random.GLOBAL_RNG)
 
-    # Run filter on simulated data
-    filtered_beliefs = run_filter(kf, belief, action_sequence, sim_measurements)
+    # Measure next state
+    # yn = measure(kf.o, xn, action_sequence[end], Random.GLOBAL_RNG)
 
-    # Turn array of belief structs into simple tensors
-    μ, Σ = unpack(filtered_beliefs);
-    
-    # Return new belief as Normal distribution
-    return GaussianBelief([μ[1]], Matrix{Float64}(I, 1, 1) * sqrt(Σ[1,1]))
+    # update belief
+    # bn = GaussianFilters.update(kf, b0, action_sequence[end], yn)
+    bn = GaussianFilters.update(kf, b0, action, [o.SeaLiceLevel])
+
+    return bn
 end
