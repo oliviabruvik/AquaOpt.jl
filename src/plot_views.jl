@@ -89,7 +89,8 @@ function plot_mdp_results_overlay(num_episodes, steps_per_episode)
     end
     
     # Save the figure
-    fig_path = joinpath("results", "figures", "all_policies_overlay_$(num_episodes)_episodes_$(steps_per_episode)_steps.png")
+    mkdir(joinpath("results", "figures", "All_policies"))
+    fig_path = joinpath("results", "figures", "All_policies", "all_policies_overlay_$(num_episodes)_episodes_$(steps_per_episode)_steps.png")
     @info "Saving figure to $fig_path"
     savefig(p, fig_path)
     return p
