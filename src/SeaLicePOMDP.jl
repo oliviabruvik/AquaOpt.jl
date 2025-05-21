@@ -17,8 +17,10 @@ using POMDPLinter
 # -------------------------
 const MIN_LICE_LEVEL = 0.0
 const MAX_LICE_LEVEL = 10.0
-const SEA_LICE_RANGE = MIN_LICE_LEVEL:0.1:MAX_LICE_LEVEL
-const INITIAL_RANGE = MIN_LICE_LEVEL:0.1:MAX_LICE_LEVEL
+const DISCRETIZATION_STEP = 0.1
+const NUM_POINTS = Int((MAX_LICE_LEVEL - MIN_LICE_LEVEL) / DISCRETIZATION_STEP) + 1
+const SEA_LICE_RANGE = MIN_LICE_LEVEL:DISCRETIZATION_STEP:MAX_LICE_LEVEL
+const INITIAL_RANGE = MIN_LICE_LEVEL:DISCRETIZATION_STEP:MAX_LICE_LEVEL
 const STD_DEV = 1.0 # TODO: Fix from hard coded value
 
 # -------------------------
@@ -69,7 +71,7 @@ function discretized_normal_points(mean::Float64; std_dev=1.0)
     # Normalize the probabilities
     probs = exp.(-((points .- mean).^2) ./ (2 * std_dev^2))
     probs ./= sum(probs)
-    
+
     return points, probs
 end
 
@@ -81,10 +83,16 @@ POMDPs.actions(mdp::SeaLiceMDP) = [NoTreatment, Treatment]
 POMDPs.observations(mdp::SeaLiceMDP) = [SeaLiceObservation(round(i, digits=1)) for i in SEA_LICE_RANGE]
 POMDPs.discount(mdp::SeaLiceMDP) = mdp.discount_factor
 POMDPs.isterminal(mdp::SeaLiceMDP, s::SeaLiceState) = false
-POMDPs.stateindex(::UnderlyingMDP{SeaLiceMDP, SeaLiceState, Action}, s::SeaLiceState) = clamp(round(Int, s.SeaLiceLevel * 10) + 1, 1, 101)
-POMDPs.stateindex(::SeaLiceMDP, s::SeaLiceState) = clamp(round(Int, s.SeaLiceLevel * 10) + 1, 1, 101)
+POMDPs.stateindex(::SeaLiceMDP, s::SeaLiceState) = convert_to_index(s.SeaLiceLevel)
 POMDPs.actionindex(::SeaLiceMDP, a::Action) = clamp(Int(a) + 1, 1, 2)
-POMDPs.obsindex(::SeaLiceMDP, o::SeaLiceObservation) = clamp(round(Int, o.SeaLiceLevel * 10) + 1, 1, 101)
+POMDPs.obsindex(::SeaLiceMDP, o::SeaLiceObservation) = convert_to_index(o.SeaLiceLevel)
+
+# -------------------------
+# Conversion Utilities
+# -------------------------
+function convert_to_index(lice_level::Float64)
+    return clamp(round(Int, lice_level * Int(1/DISCRETIZATION_STEP)) + 1, 1, NUM_POINTS)
+end
 
 # Required by LocalApproximationValueIteration
 function POMDPs.convert_s(::Type{Vector{Float64}}, s::SeaLiceState, mdp::SeaLiceMDP)
@@ -95,16 +103,20 @@ function POMDPs.convert_s(::Type{SeaLiceState}, v::Vector{Float64}, mdp::SeaLice
     return SeaLiceState(v[1])
 end
 
+
+# -------------------------
+# Transition, Observation, Reward, Initial State
+# -------------------------
 function POMDPs.transition(mdp::SeaLiceMDP, s::SeaLiceState, a::Action)
     μ = (1 - (a == Treatment ? mdp.rho : 0.0)) * exp(mdp.growthRate) * s.SeaLiceLevel
     pts, probs = discretized_normal_points(μ)
-    states = [SeaLiceState(round(clamp(x, 0.0, 10.0), digits=1)) for x in pts]
+    states = [SeaLiceState(round(clamp(x, MIN_LICE_LEVEL, MAX_LICE_LEVEL), digits=1)) for x in pts]
     return SparseCat(states, probs)
 end
 
 function POMDPs.observation(mdp::SeaLiceMDP, a::Action, s::SeaLiceState)
     pts, probs = discretized_normal_points(s.SeaLiceLevel)
-    obs = [SeaLiceObservation(round(clamp(x, 0.0, 10.0), digits=1)) for x in pts]
+    obs = [SeaLiceObservation(round(clamp(x, MIN_LICE_LEVEL, MAX_LICE_LEVEL), digits=1)) for x in pts]
     return SparseCat(obs, probs)
 end
 
