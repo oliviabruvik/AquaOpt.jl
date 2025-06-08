@@ -57,7 +57,7 @@ end
     growthRate::Float64 = 1.2
     rho::Float64 = 0.7
     discount_factor::Float64 = 0.95
-    log_space::Bool = true
+    log_space::Bool = false
 end
 
 # ----------------------------
@@ -152,6 +152,13 @@ function run_simulation(policy, mdp, pomdp, config, algorithm)
         end
 
         r_total, action_hist, state_hist, measurement_hist, reward_hist, belief_hist = simulate_helper(sim, sim_pomdp, policy, updater, initial_belief, s)
+
+        # If we are using log space, convert the state history to raw space
+        # if typeof(sim_pomdp) <: SeaLiceLogSimMDP
+        #     state_hist = [pomdp.SeaLiceLogState(exp(s.SeaLiceLevel)) for s in state_hist]
+        #     measurement_hist = [pomdp.SeaLiceLogObservation(exp(o.SeaLiceLevel)) for o in measurement_hist]
+        #     # belief_hist = [Normal(exp(b.μ[1]), exp(b.Σ[1,1])) for b in belief_hist]
+        # end
 
         push!(r_total_hists, r_total)
         push!(action_hists, action_hist)
@@ -294,9 +301,18 @@ function test_optimizer(algorithm, config, pomdp_config)
         lambda=Float64[],
         avg_treatment_cost=Float64[],
         avg_sealice=Float64[],
+        state_hists=Vector{Any}[],
         action_hists=Vector{Any}[],
         belief_hists=Vector{Any}[]
     )
+
+    # Create directory for simulation histories and results
+    histories_dir = joinpath(config.data_dir, "simulation_histories", algorithm.solver_name)
+    mkpath(histories_dir)
+    results_dir = joinpath(config.data_dir, "avg_results", algorithm.solver_name)
+    mkpath(results_dir)
+    policies_dir = joinpath(config.data_dir, "policies", algorithm.solver_name)
+    mkpath(policies_dir)
 
     # Generate policies for each lambda
     for λ in config.lambda_values
@@ -309,18 +325,37 @@ function test_optimizer(algorithm, config, pomdp_config)
         avg_reward, avg_cost, avg_sealice = calculate_averages(config, pomdp, action_hists, state_hists, reward_hists)
 
         # Calculate the average reward, cost, and sea lice level
-        push!(results, (λ, avg_cost, avg_sealice, action_hists, belief_hists))
+        push!(results, (λ, avg_cost, avg_sealice, state_hists, action_hists, belief_hists))
+
+        # Save all histories for this lambda
+        histories = Dict(
+            "r_total_hists" => r_total_hists,
+            "action_hists" => action_hists,
+            "state_hists" => state_hists,
+            "measurement_hists" => measurement_hists,
+            "reward_hists" => reward_hists,
+            "belief_hists" => belief_hists,
+            "lambda" => λ,
+            "avg_reward" => avg_reward,
+            "avg_cost" => avg_cost,
+            "avg_sealice" => avg_sealice
+        )
+        
+        # Save histories to file
+        history_filename = "hists_$(pomdp_config.log_space)_log_space_$(config.num_episodes)_episodes_$(config.steps_per_episode)_steps_$(λ)_lambda"
+        @save joinpath(histories_dir, "$(history_filename).jld2") histories
+        CSV.write(joinpath(histories_dir, "$(history_filename).csv"), DataFrame(histories))
+
+        # Save policy, pomdp, and mdp to file
+        policy_pomdp_mdp_filename = "policy_pomdp_mdp_$(pomdp_config.log_space)_log_space_$(config.num_episodes)_episodes_$(config.steps_per_episode)_steps_$(λ)_lambda"
+        @save joinpath(policies_dir, "$(policy_pomdp_mdp_filename).jld2") policy pomdp mdp
+
     end
 
-    # Plot results
-    results_plot = plot_mdp_results(results, algorithm.solver_name)
-    belief_plot = plot_policy_belief_levels(results, algorithm.solver_name)
-    
     # Save results
-    mkpath(joinpath(config.figures_dir, algorithm.solver_name))
-    mkpath(joinpath(config.data_dir, algorithm.solver_name))
-    @save joinpath(config.data_dir, "$(algorithm.solver_name)/results_$(config.num_episodes)_episodes_$(config.steps_per_episode)_steps.jld2") results
-    savefig(results_plot, joinpath(config.figures_dir, "$(algorithm.solver_name)/results_$(config.num_episodes)_episodes_$(config.steps_per_episode)_steps.png"))
-    savefig(belief_plot, joinpath(config.figures_dir, "$(algorithm.solver_name)/beliefs_$(config.num_episodes)_episodes_$(config.steps_per_episode)_steps.png"))
+    avg_results_filename = "avg_results_$(pomdp_config.log_space)_log_space_$(config.num_episodes)_episodes_$(config.steps_per_episode)_steps"
+    @save joinpath(results_dir, "$(avg_results_filename).jld2") results
+    CSV.write(joinpath(results_dir, "$(avg_results_filename).csv"), results)
+    
     return results
 end
