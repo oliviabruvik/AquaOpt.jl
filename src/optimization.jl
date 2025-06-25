@@ -1,8 +1,8 @@
 include("kalmanFilter.jl")
-include("SeaLicePOMDP.jl")
-include("SeaLiceLogPOMDP.jl")
-include("SimulationPOMDP.jl")
-include("SimulationLogPOMDP.jl")
+include("Models/SeaLicePOMDP.jl")
+include("Models/SeaLiceLogPOMDP.jl")
+include("Models/SimulationPOMDP.jl")
+include("Models/SimulationLogPOMDP.jl")
 
 using GaussianFilters
 using POMDPs

@@ -4,8 +4,8 @@ using Distributions
 using LinearAlgebra
 using Random
 
-include("SimulationPOMDP.jl")
-include("SimulationLogPOMDP.jl")
+include("Models/SimulationPOMDP.jl")
+include("Models/SimulationLogPOMDP.jl")
 
 struct KFUpdaterStruct
     ekf::ExtendedKalmanFilter

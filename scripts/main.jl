@@ -1,5 +1,5 @@
-include("../src/cleaning.jl")
-include("../src/SeaLicePOMDP.jl")
+include("../src/Data/Cleaning.jl")
+include("../src/Models/SeaLicePOMDP.jl")
 include("../src/plot_views.jl")
 include("../src/optimization.jl")
 
@@ -20,9 +20,6 @@ using LocalApproximationValueIteration
 
 plotlyjs()  # Activate Plotly backend
 
-# TODO: STD should be decreasing over time
-# TODO: belief plot diff lambda
-
 # ----------------------------
 # Main function
 # ----------------------------
@@ -31,7 +28,7 @@ function main(;run_algorithms=true, run_plots=true, log_space=true)
     @info "Loading and cleaning data"
     df = CSV.read(joinpath("data", "processed", "sealice_data.csv"), DataFrame)
 
-    CONFIG = Config(num_episodes=1000, steps_per_episode=52)
+    CONFIG = Config(num_episodes=10, steps_per_episode=52)
     POMDP_CONFIG = POMDPConfig(log_space=log_space)
 
     algorithms = [
@@ -97,11 +94,6 @@ function plot_results(algorithms, CONFIG, POMDP_CONFIG)
         # Plot simulation treatment heatmap
         plot_simulation_treatment_heatmap(algo, CONFIG, POMDP_CONFIG; use_observations=false, n_bins=50)
 
-        # if algo.solver_name == "VI_Policy"  # TODO: Make this more general
-        #     plot_value_iteration_convergence(algo, CONFIG, POMDP_CONFIG, 0.6)
-        # else
-        #     plot_simulation_convergence(algo, CONFIG, POMDP_CONFIG, 0.6; window_size=5)
-        # end
     end
     
 
@@ -113,19 +105,11 @@ function plot_results(algorithms, CONFIG, POMDP_CONFIG)
     plot_policy_treatment_cost_over_time(CONFIG, POMDP_CONFIG, 0.6)
     plot_policy_reward_over_lambdas(CONFIG, POMDP_CONFIG)
 
-    mkpath(joinpath(CONFIG.figures_dir, "research_plots"))
-
     # Generate Pareto frontier
     plot_pareto_frontier(CONFIG, POMDP_CONFIG)
-
-    
-    
-    # Run sensitivity analysis for key parameters
-    param_values = [0.5, 0.7, 0.9]  # Example values for treatment effectiveness
-    # plot_sensitivity_analysis(config, pomdp_config, "treatment_effectiveness", param_values)
 
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    main(run_algorithms=false, run_plots=true, log_space=true)
+    main(run_algorithms=true, run_plots=true, log_space=true)
 end
