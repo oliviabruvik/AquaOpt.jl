@@ -1,7 +1,7 @@
-include("cleaning.jl")
-include("SeaLicePOMDP.jl")
-include("plot_views.jl")
-include("optimization.jl")
+include("../Data/Cleaning.jl")
+include("../Models/SeaLicePOMDP.jl")
+include("../plot_views.jl")
+include("../optimization.jl")
 
 # Environment variables
 ENV["PLOTS_BROWSER"] = "true"
