@@ -33,56 +33,33 @@ LUSEDATA_PATH = "data/processed/sealice_data.csv"
 BARETSWATCH_PATH = "data/processed/bayesian_outer_data.csv"
 
 function main()
-    # @info "Running MLE analysis for Luse data"
-    # luse_data_df = CSV.read(LUSEDATA_PATH, DataFrame)
-    # luse_data_df = convert_lusedata_to_baretswatch_format(luse_data_df)
-    # mle_analysis(luse_data_df)
 
-    # Reduces REMSE from 8 to 0.34
+    # Run MLE analysis for Baretswatch data
     use_consecutive_weeks = true
-    run_algos = true
+    spaces = ["log-space-normal", "raw-space-log-normal", "raw-space-normal"]
     
     baretswatch_data_df = CSV.read(BARETSWATCH_PATH, DataFrame)
     baretswatch_data_df = clean_baretswatch_data(baretswatch_data_df, false, 1e-8)
 
-    if run_algos
+    # Run MLE analysis for each space
+    for space in spaces
 
-        @info "Running MLE analysis for Baretswatch data in in normal space"
-        # Natural for growth in log
-        location_to_growth_rate = mle_analysis_by_location(baretswatch_data_df, "log-space-normal", use_consecutive_weeks)
-        location_year_to_growth_rate = mle_analysis_by_location_year(baretswatch_data_df, "log-space-normal", use_consecutive_weeks)
+        @info "Running MLE analysis for Baretswatch data in in $space space"
 
-        # Evaluate growth rates
-        evaluate_growth_rates_by_location(location_to_growth_rate, baretswatch_data_df, use_consecutive_weeks, "log-space-normal")
-        evaluate_growth_rates_by_location_year(location_year_to_growth_rate, baretswatch_data_df, use_consecutive_weeks, "log-space-normal")
-        plot_growth_rates_by_year_and_location(location_year_to_growth_rate, baretswatch_data_df, "log-space-normal")
-        plot_mean_growth_rates_by_year_and_location(location_year_to_growth_rate, baretswatch_data_df, "log-space-normal")
-        list_top_ten_locations(location_to_growth_rate, baretswatch_data_df, use_consecutive_weeks, "log-space-normal")
+        # Calculate growth rates by location and year
+        location_to_growth_rate = mle_analysis_by_location(baretswatch_data_df, space, use_consecutive_weeks)
+        location_year_to_growth_rate = mle_analysis_by_location_year(baretswatch_data_df, space, use_consecutive_weeks)
 
-        @info "Running MLE analysis for Baretswatch data in in log normal space"
-        # Best when working in count space
-        location_to_growth_rate = mle_analysis_by_location(baretswatch_data_df, "raw-space-log-normal", use_consecutive_weeks)
-        location_year_to_growth_rate = mle_analysis_by_location_year(baretswatch_data_df, "raw-space-log-normal", use_consecutive_weeks)
+        # Evaluate growth rates by location and year
+        evaluate_growth_rates_by_location(location_to_growth_rate, baretswatch_data_df, use_consecutive_weeks, space)
+        evaluate_growth_rates_by_location_year(location_year_to_growth_rate, baretswatch_data_df, use_consecutive_weeks, space)
 
-        # Evaluate growth rates
-        evaluate_growth_rates_by_location(location_to_growth_rate, baretswatch_data_df, use_consecutive_weeks, "raw-space-log-normal")
-        evaluate_growth_rates_by_location_year(location_year_to_growth_rate, baretswatch_data_df, use_consecutive_weeks, "raw-space-log-normal")
-        plot_growth_rates_by_year_and_location(location_year_to_growth_rate, baretswatch_data_df, "raw-space-log-normal")
-        plot_mean_growth_rates_by_year_and_location(location_year_to_growth_rate, baretswatch_data_df, "raw-space-log-normal")
-        list_top_ten_locations(location_to_growth_rate, baretswatch_data_df, use_consecutive_weeks, "raw-space-log-normal")
+        # Plot growth rates by year and location
+        plot_growth_rates_by_year_and_location(location_year_to_growth_rate, baretswatch_data_df, space)
+        plot_mean_growth_rates_by_year_and_location(location_year_to_growth_rate, baretswatch_data_df, space)
 
-        @info "Running MLE analysis for Baretswatch data in in raw-space"
-        # Not appropriate - can go negative
-        location_to_growth_rate = mle_analysis_by_location(baretswatch_data_df, "raw-space-normal", use_consecutive_weeks)
-        location_year_to_growth_rate = mle_analysis_by_location_year(baretswatch_data_df, "raw-space-normal", use_consecutive_weeks)
-
-        # Evaluate growth rates
-        evaluate_growth_rates_by_location(location_to_growth_rate, baretswatch_data_df, use_consecutive_weeks, "raw-space-normal")
-        evaluate_growth_rates_by_location_year(location_year_to_growth_rate, baretswatch_data_df, use_consecutive_weeks, "raw-space-normal")
-        plot_growth_rates_by_year_and_location(location_year_to_growth_rate, baretswatch_data_df, "raw-space-normal")
-        plot_mean_growth_rates_by_year_and_location(location_year_to_growth_rate, baretswatch_data_df, "raw-space-normal")
-        list_top_ten_locations(location_to_growth_rate, baretswatch_data_df, use_consecutive_weeks, "raw-space-normal")
-
+        # List top 10 locations
+        list_top_ten_locations(location_to_growth_rate, baretswatch_data_df, use_consecutive_weeks, space)
     end
 
 end
@@ -134,17 +111,8 @@ function mle_analysis_by_location(df, space="log-space-normal", use_consecutive_
 
         # Get location dataframe
         location_df = df[df.site_number .== location, :]
-
-        # Run optimization: # Initial guess: r = 0.1, σ = 0.1
-        # result = optimize(p -> baretswatch_log_likelihood(p, location_df, space), [0.1, 0.1],
-        #          lower=[-1.0, 1e-6], upper=[1.0, 5.0], autodiff = :forward)
-
         result = optimize(r -> baretswatch_log_likelihood(r, location_df, space, use_consecutive_weeks), [0.0], autodiff = :forward, show_every = 100)
         r_hat = Optim.minimizer(result)
-
-        rounded_result = round(r_hat[1], digits=4)
-
-        # println("MLE for growth rate at location $location: $rounded_result")
         location_to_growth_rate[location] = r_hat[1]
     end
 
@@ -193,7 +161,6 @@ end
 # Define log likelihood function for MLE analysis
 function baretswatch_log_likelihood(r, df, space="log-space-normal", use_consecutive_weeks=false)
 
-    # r = r[1]
     σ = 0.1
 
     log_likelihood = 0.0
@@ -224,8 +191,6 @@ function calculate_log_likelihood(r, df, t, σ, week_delta, space="log-space-nor
         # Raw-space log normal model: N_k+1 ~ LogNormal(log(N_k) + r * week_delta, sd)
         # This models multiplicative growth with log-normal errors
         μ = log(df.adult_sealice[t-1]) + r[1] * week_delta
-        # log_μ = log(μ) - σ^2/2
-        # return logpdf(LogNormal(log_μ, σ), df.adult_sealice[t])
         return logpdf(LogNormal(μ, σ), df.adult_sealice[t])
     elseif space == "raw-space-normal"
         # Raw-space normal model: N_k+1 ~ N(N_k * exp(r * week_delta), sd)
@@ -238,14 +203,13 @@ function calculate_log_likelihood(r, df, t, σ, week_delta, space="log-space-nor
 end
 
 
-
 ########################################################
 # Evaluate growth rates by location and year
 ########################################################
 function evaluate_growth_rates_by_location(location_to_growth_rate, df, use_consecutive_weeks, space, save_plots=false)
     mean_growth_rate = round(mean(values(location_to_growth_rate)), digits=4)
     var_growth_rate = round(var(values(location_to_growth_rate)), digits=4)
-    preds, actuals = evaluate_r(mean_growth_rate, df, use_consecutive_weeks)
+    preds, actuals = predict_sealice_levels(mean_growth_rate, df, use_consecutive_weeks)
     mae, rmse, r2 = evaluate_metrics(preds, actuals)
     mae, rmse, r2 = round(mae, digits=4), round(rmse, digits=4), round(r2, digits=4)
     println("By location: Mean growth rate: $mean_growth_rate, Variance: $var_growth_rate, MAE: $mae, RMSE: $rmse, R2: $r2")
@@ -261,7 +225,7 @@ function evaluate_growth_rates_by_location(location_to_growth_rate, df, use_cons
         push!(locations, location)
         location_df = df[df.site_number .== location, :]
         growth_rate = location_to_growth_rate[location]
-        preds, actuals = evaluate_r(growth_rate, location_df, use_consecutive_weeks)
+        preds, actuals = predict_sealice_levels(growth_rate, location_df, use_consecutive_weeks)
         mae, rmse, r2 = evaluate_metrics(preds, actuals)
 
         # Save results
@@ -293,7 +257,7 @@ end
 function evaluate_growth_rates_by_location_year(location_year_to_growth_rate, df, use_consecutive_weeks, space, save_plots=false)
     mean_growth_rate = round(mean(values(location_year_to_growth_rate)), digits=4)
     var_growth_rate = round(var(values(location_year_to_growth_rate)), digits=4)
-    preds, actuals = evaluate_r(mean_growth_rate, df, use_consecutive_weeks)
+    preds, actuals = predict_sealice_levels(mean_growth_rate, df, use_consecutive_weeks)
     mae, rmse, r2 = evaluate_metrics(preds, actuals)
     mae, rmse, r2 = round(mae, digits=4), round(rmse, digits=4), round(r2, digits=4)
     println("By location, year:Mean growth rate: $mean_growth_rate, Variance: $var_growth_rate, MAE: $mae, RMSE: $rmse, R2: $r2")
@@ -314,7 +278,7 @@ function evaluate_growth_rates_by_location_year(location_year_to_growth_rate, df
     for location_year in keys(location_year_to_growth_rate)
         location_year_df = df[(df.site_number .== location_year[1]) .& (df.year .== location_year[2]), :]
         growth_rate = location_year_to_growth_rate[location_year]
-        preds, actuals = evaluate_r(growth_rate, location_year_df, use_consecutive_weeks)
+        preds, actuals = predict_sealice_levels(growth_rate, location_year_df, use_consecutive_weeks)
         mae, rmse, r2 = evaluate_metrics(preds, actuals)
 
         # Save results
@@ -341,7 +305,6 @@ function evaluate_growth_rates_by_location_year(location_year_to_growth_rate, df
 
     println("By location, year (individual): Mean growth rate: $mean_growth_rate, Variance: $var_growth_rate, MAE: $mean_mae, RMSE: $mean_rmse, R2: $mean_r2")
 
-
     # Save mae, rmse, r2 for each location and year as csv
     save_df = DataFrame(location=locations, year=years, growth_rate=growth_rates, mae=maes, rmse=rmses, r2=r2s)
     CSV.write("results/figures/MLE/$space/location_year_predictions.csv", save_df)
@@ -351,14 +314,14 @@ end
 
 
 ########################################################
-# Evaluate r for a given r and data
+# Evaluate r value for a given growth rate and data
 ########################################################
-function evaluate_r(r, df, use_consecutive_weeks)
+function predict_sealice_levels(growth_rate, df, use_consecutive_weeks)
     preds = Float64[]
     actuals = Float64[]
     
     # Extract scalar value from vector
-    r_value = r[1]
+    r_value = growth_rate[1]
 
     for t in 2:length(df.adult_sealice)
         Δt = df.total_week[t] - df.total_week[t-1]
@@ -395,7 +358,7 @@ function list_top_ten_locations(location_to_growth_rate, df, use_consecutive_wee
     for location in keys(location_to_growth_rate)
         location_df = df[df.site_number .== location, :]
         growth_rate = location_to_growth_rate[location]
-        preds, actuals = evaluate_r(growth_rate, location_df, use_consecutive_weeks)
+        preds, actuals = predict_sealice_levels(growth_rate, location_df, use_consecutive_weeks)
         _, _, r2 = evaluate_metrics(preds, actuals)
         
         push!(locations, location)
