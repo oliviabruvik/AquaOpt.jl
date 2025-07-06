@@ -18,8 +18,6 @@ using Plots
 using Distributions
 using Parameters
 
-# if above threshold, choose treatment with probability rho
-
 # ----------------------------
 # Optimizer Wrapper
 # ----------------------------
