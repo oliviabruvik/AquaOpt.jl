@@ -9,6 +9,7 @@ using Parameters
     steps_per_episode::Int = 20
     heuristic_threshold::Float64 = 5.0  # In absolute space
     heuristic_belief_threshold::Float64 = 0.5
+    heuristic_rho::Float64 = 0.8
     process_noise::Float64 = 0.5
     observation_noise::Float64 = 0.5
     policies_dir::String = joinpath("results", "policies")
@@ -26,6 +27,7 @@ end
     solver_name::String = "Heuristic_Policy"
     heuristic_threshold::Union{Float64, Nothing} = nothing # set to heuristic threshold
     heuristic_belief_threshold::Union{Float64, Nothing} = nothing
+    heuristic_rho::Union{Float64, Nothing} = nothing
 end
 
 # ----------------------------
