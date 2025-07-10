@@ -115,8 +115,8 @@ function plot_policy_cost_vs_sealice(results, title, config)
         )
     end
 
-    mkpath(joinpath(config.figures_dir, "treatment_cost_vs_sealice_plots", title))
-    savefig(p, joinpath(config.figures_dir, "treatment_cost_vs_sealice_plots/$(title)/results.png"))
+    mkpath(joinpath(config.figures_dir, "treatment_cost_vs_sealice_plots"))
+    savefig(p, joinpath(config.figures_dir, "treatment_cost_vs_sealice_plots/$(title)_results.png"))
     return p
 end
 
@@ -254,8 +254,8 @@ function plot_all_cost_vs_sealice(config)
     end
     
     # Save the figure
-    mkpath(joinpath(config.figures_dir, "treatment_cost_vs_sealice_plots"))
-    savefig(p, joinpath(config.figures_dir, "treatment_cost_vs_sealice_plots/All_policies_results.png"))
+    mkpath(joinpath(config.figures_dir, "Policy_Comparison"))
+    savefig(p, joinpath(config.figures_dir, "Policy_Comparison", "treatment_cost_vs_sealice_plot.png"))
     return p
 end
 
@@ -343,8 +343,8 @@ function plot_policy_sealice_levels_over_lambdas(config)
             @warn "Could not load results for $policy_name: $e"
         end
     end
-    mkpath(joinpath(config.figures_dir, "sealice_lambda_plots"))
-    savefig(p, joinpath(config.figures_dir, "sealice_lambda_plots/All_policies_sealice_lambda.png"))
+    mkpath(joinpath(config.figures_dir, "Policy_Comparison"))
+    savefig(p, joinpath(config.figures_dir, "Policy_Comparison", "sealice_lambda_plot.png"))
     return p
 end
 
@@ -428,8 +428,8 @@ function plot_policy_treatment_cost_over_lambdas(config)
             @warn "Could not load results for $policy_name: $e"
         end
     end
-    mkpath(joinpath(config.figures_dir, "treatment_cost_lambda_plots"))
-    savefig(p, joinpath(config.figures_dir, "treatment_cost_lambda_plots/All_policies_treatment_cost_lambda.png"))
+    mkpath(joinpath(config.figures_dir, "Policy_Comparison"))
+    savefig(p, joinpath(config.figures_dir, "Policy_Comparison", "treatment_cost_lambda_plot.png"))
     return p
 end
 
@@ -529,8 +529,8 @@ function plot_policy_reward_over_lambdas(config)
             @warn "Could not load results for $policy_name: $e"
         end
     end
-    mkpath(joinpath(config.figures_dir, "reward_lambda_plots"))
-    savefig(p, joinpath(config.figures_dir, "reward_lambda_plots/All_policies_reward_lambda.png"))
+    mkpath(joinpath(config.figures_dir, "Policy_Comparison"))
+    savefig(p, joinpath(config.figures_dir, "Policy_Comparison", "reward_lambda_plot.png"))
     return p
 end
 
