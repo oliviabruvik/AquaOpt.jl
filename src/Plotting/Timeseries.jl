@@ -129,7 +129,7 @@ function plot_policy_sealice_levels_over_time(config, lambda_value)
     for (policy_name, style) in policy_styles
         try
             # Load the results from the JLD2 file
-            @load joinpath(config.data_dir, "avg_results", policy_name, "avg_results.jld2") results
+            @load joinpath(config.data_dir, "avg_results", "$(policy_name)_avg_results.jld2") results
             
             # Find the index for the specified lambda value
             lambda_index = findfirst(λ -> abs(λ - lambda_value) < 1e-10, results.lambda)
