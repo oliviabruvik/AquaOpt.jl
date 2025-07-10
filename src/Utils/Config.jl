@@ -18,17 +18,24 @@ using Parameters
     rho::Float64 = 0.7
     discount_factor::Float64 = 0.95
     log_space::Bool = false
-    
+    skew::Bool = false
+
     # Algorithm parameters
     lambda_values::Vector{Float64} = collect(0.0:0.05:1.0)
+    sarsop_max_time::Float64 = 10.0 # 150.0 # 10
+    VI_max_iterations::Int = 30 #100 # 30
+    QMDP_max_iterations::Int = 30 #100 # 30
+
+    # Heuristic parameters
     heuristic_threshold::Float64 = 5.0  # In absolute space
     heuristic_belief_threshold::Float64 = 0.5
     heuristic_rho::Float64 = 0.8
 
     # File management
-    policies_dir::String = joinpath("results", "policies")
-    figures_dir::String = joinpath("results", "figures")
-    data_dir::String = joinpath("results", "data")
+    experiment_name::String = "exp"
+    policies_dir::String = joinpath("results", "experiments", experiment_name,"policies")
+    figures_dir::String = joinpath("results", "experiments", experiment_name, "figures")
+    data_dir::String = joinpath("results", "experiments", experiment_name, "data")
 end
 
 # ----------------------------
@@ -58,4 +65,5 @@ end
     rho::Float64 = 0.7
     discount_factor::Float64 = 0.95
     log_space::Bool = false
+    skew::Bool = false
 end
