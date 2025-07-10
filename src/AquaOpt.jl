@@ -22,27 +22,133 @@ using POMDPTools
 using Plots: plot, plot!, scatter, scatter!, heatmap, heatmap!, histogram, histogram!, savefig
 using LocalFunctionApproximation
 using LocalApproximationValueIteration
+using Dates
 
 plotlyjs()  # Activate Plotly backend
 
 # ----------------------------
 # Main function
 # ----------------------------
-function main(;run_algorithms=true, run_plots=true, log_space=true)
+function main(;run_algorithms=true, log_space=true, experiment_name="exp")
 
-    @info "Loading and cleaning data"
-    df = CSV.read(joinpath("data", "processed", "sealice_data.csv"), DataFrame)
+    EXPERIMENT_CONFIG, HEURISTIC_CONFIG = setup_configs(experiment_name, log_space)
+
+    # Define algorithms
+    algorithms = [
+        Algorithm(solver_name="NoTreatment_Policy"),
+        Algorithm(solver_name="Random_Policy"),
+        Algorithm(solver_name="Heuristic_Policy", heuristic_config=HEURISTIC_CONFIG),
+        Algorithm(solver=ValueIterationSolver(max_iterations=EXPERIMENT_CONFIG.VI_max_iterations), solver_name="VI_Policy"),
+        # time out
+        Algorithm(solver=SARSOPSolver(max_time=EXPERIMENT_CONFIG.sarsop_max_time, verbose=true), solver_name="SARSOP_Policy"),
+        Algorithm(solver=QMDPSolver(max_iterations=EXPERIMENT_CONFIG.QMDP_max_iterations), solver_name="QMDP_Policy")
+    ]
+
+    # Solve POMDPs and simulate policies
+    if run_algorithms
+        all_results = solve_and_simulate_algorithms(algorithms, EXPERIMENT_CONFIG)
+    else
+        @info "Skipping algorithms"
+        all_results = nothing
+    end
+
+    # Plot results
+    plot_results(all_results, algorithms, EXPERIMENT_CONFIG)
+
+end
+
+# ----------------------------
+# Solve and simulate algorithms
+# ----------------------------
+function solve_and_simulate_algorithms(algorithms, EXPERIMENT_CONFIG)
+
+    all_results = Dict{String, DataFrame}()
+    for algo in algorithms
+        @info "Running $(algo.solver_name)"
+        results = test_optimizer(algo, EXPERIMENT_CONFIG)
+        all_results[algo.solver_name] = results
+    end
+
+    # Save all results
+    mkpath(joinpath(EXPERIMENT_CONFIG.data_dir, "avg_results"))
+    @save joinpath(EXPERIMENT_CONFIG.data_dir, "avg_results", "All_policies_all_results.jld2") all_results
+
+    return all_results
+
+end
+
+# ----------------------------
+# Plot results
+# ----------------------------
+function plot_results(all_results, algorithms, EXPERIMENT_CONFIG)
+
+    @info "Generating result plots"
+
+    if all_results == nothing
+        all_results = load_results(EXPERIMENT_CONFIG)
+    end
+
+    # Plot individual policy plots
+    for algo in algorithms
+        results = all_results[algo.solver_name]
+
+        # Plot policy cost vs sealice
+        plot_policy_cost_vs_sealice(results, algo.solver_name, EXPERIMENT_CONFIG)
+
+        # Plot policy belief levels
+        plot_policy_belief_levels(results, algo.solver_name, EXPERIMENT_CONFIG, 0.6)
+
+        # Plot treatment heatmap
+        # plot_treatment_heatmap(algo, EXPERIMENT_CONFIG)
+
+        # Plot simulation treatment heatmap
+        # plot_simulation_treatment_heatmap(algo, EXPERIMENT_CONFIG; use_observations=false, n_bins=50)
+
+    end
+    
+    # Plot comparison plots
+    plot_all_cost_vs_sealice(EXPERIMENT_CONFIG)
+    plot_policy_sealice_levels_over_lambdas(EXPERIMENT_CONFIG)
+    plot_policy_treatment_cost_over_lambdas(EXPERIMENT_CONFIG)
+    plot_policy_sealice_levels_over_time(EXPERIMENT_CONFIG, 0.6)
+    plot_policy_treatment_cost_over_time(EXPERIMENT_CONFIG, 0.6)
+    plot_policy_reward_over_lambdas(EXPERIMENT_CONFIG)
+
+    # Generate Pareto frontier
+    plot_pareto_frontier(EXPERIMENT_CONFIG)
+
+end
+
+# ----------------------------
+# Load all results from file
+# ----------------------------
+function load_results(EXPERIMENT_CONFIG)
+
+    results_file_path = joinpath(EXPERIMENT_CONFIG.data_dir, "avg_results", "All_policies_all_results.jld2")
+
+    if isfile(results_file_path)
+        @load results_file_path all_results
+    else
+        @info "Results file not found at $results_file_path, running algorithms and simulations"
+        solve_and_simulate_algorithms(algorithms, EXPERIMENT_CONFIG)
+        @load results_file_path all_results
+    end
+
+    return all_results
+end
+
+# ----------------------------
+# Set up and save experiment configuration
+# ----------------------------
+function setup_configs(experiment_name, log_space)
 
     # Define experiment configuration
-    EXPERIMENT_CONFIG = ExperimentConfig(num_episodes=3, steps_per_episode=52, log_space=log_space)
-
-    # Define POMDP configuration
-    POMDP_CONFIG = POMDPConfig(
-        log_space=EXPERIMENT_CONFIG.log_space,
-        costOfTreatment=EXPERIMENT_CONFIG.costOfTreatment,
-        growthRate=EXPERIMENT_CONFIG.growthRate,
-        rho=EXPERIMENT_CONFIG.rho,
-        discount_factor=EXPERIMENT_CONFIG.discount_factor
+    exp_name = experiment_name * "_" * string(log_space) * "_log_space" * "_" * string(Dates.now())
+    EXPERIMENT_CONFIG = ExperimentConfig(
+        num_episodes=1, #10,
+        steps_per_episode=52,
+        log_space=log_space,
+        experiment_name=exp_name,
     )
 
     # Define heuristic configuration
@@ -52,91 +158,35 @@ function main(;run_algorithms=true, run_plots=true, log_space=true)
         rho=EXPERIMENT_CONFIG.heuristic_rho
     )
 
-    # Print EXPERIMENT_CONFIG, POMDP_CONFIG, and HEURISTIC_CONFIG values
-    show(EXPERIMENT_CONFIG)
-    show(POMDP_CONFIG)
-    show(HEURISTIC_CONFIG)
-
-    # Define algorithms
-    algorithms = [
-        Algorithm(solver_name="NoTreatment_Policy"),
-        Algorithm(solver_name="Random_Policy"),
-        Algorithm(solver_name="Heuristic_Policy", heuristic_config=HEURISTIC_CONFIG),
-        Algorithm(solver=ValueIterationSolver(max_iterations=30), solver_name="VI_Policy"),
-        Algorithm(solver=SARSOPSolver(max_time=10.0), solver_name="SARSOP_Policy"),
-        Algorithm(solver=QMDPSolver(max_iterations=30), solver_name="QMDP_Policy")
-    ]
-
-    if run_algorithms
-        solve_and_simulate_algorithms(algorithms, EXPERIMENT_CONFIG, POMDP_CONFIG)
+    # Write EXPERIMENT_CONFIG to file
+    mkpath(joinpath(EXPERIMENT_CONFIG.data_dir, "config"))
+    @save joinpath(EXPERIMENT_CONFIG.data_dir, "config", "experiment_config.jld2") EXPERIMENT_CONFIG
+    open(joinpath(EXPERIMENT_CONFIG.data_dir, "config", "experiment_config.txt"), "w") do io
+        for field in fieldnames(typeof(EXPERIMENT_CONFIG))
+            value = getfield(EXPERIMENT_CONFIG, field)
+            println(io, "$field: $value")
+        end
     end
 
-    if run_plots
-        plot_results(algorithms, EXPERIMENT_CONFIG, POMDP_CONFIG)
-    end
-
-end
-
-function solve_and_simulate_algorithms(algorithms, EXPERIMENT_CONFIG, POMDP_CONFIG)
-
-    all_results = Dict{String, DataFrame}()
-    for algo in algorithms
-        @info "Running $(algo.solver_name)"
-        results = test_optimizer(algo, EXPERIMENT_CONFIG, POMDP_CONFIG)
-        all_results[algo.solver_name] = results
-    end
-
-    # Save all results
-    mkpath(joinpath(EXPERIMENT_CONFIG.data_dir, "avg_results", "All_policies"))
-    @save joinpath(EXPERIMENT_CONFIG.data_dir, "avg_results", "All_policies", "all_results_$(POMDP_CONFIG.log_space)_log_space_$(EXPERIMENT_CONFIG.num_episodes)_episodes_$(EXPERIMENT_CONFIG.steps_per_episode)_steps.jld2") all_results
-
-end
-
-function plot_results(algorithms, EXPERIMENT_CONFIG, POMDP_CONFIG)
-
-    @info "Generating result plots"
-
-    # Load all results but check if file exists first
-    results_file_path = joinpath(EXPERIMENT_CONFIG.data_dir, "avg_results", "All_policies", "all_results_$(POMDP_CONFIG.log_space)_log_space_$(EXPERIMENT_CONFIG.num_episodes)_episodes_$(EXPERIMENT_CONFIG.steps_per_episode)_steps.jld2")
-    if isfile(results_file_path)
-        @load results_file_path all_results
-    else
-        @info "Results file not found at $results_file_path, running algorithms and simulations"
-        solve_and_simulate_algorithms(algorithms, EXPERIMENT_CONFIG, POMDP_CONFIG)
-        @load results_file_path all_results
-    end
-    
-    # Plot individual policy plots
-    for algo in algorithms
-        results = all_results[algo.solver_name]
-
-        # Plot policy cost vs sealice
-        plot_policy_cost_vs_sealice(results, algo.solver_name, EXPERIMENT_CONFIG, POMDP_CONFIG)
-
-        # Plot policy belief levels
-        plot_policy_belief_levels(results, algo.solver_name, EXPERIMENT_CONFIG, POMDP_CONFIG, 0.6)
-
-        # Plot treatment heatmap
-        plot_treatment_heatmap(algo, EXPERIMENT_CONFIG, POMDP_CONFIG)
-
-        # Plot simulation treatment heatmap
-        plot_simulation_treatment_heatmap(algo, EXPERIMENT_CONFIG, POMDP_CONFIG; use_observations=false, n_bins=50)
-
-    end
-    
-    # Plot comparison plots
-    plot_all_cost_vs_sealice(EXPERIMENT_CONFIG, POMDP_CONFIG)
-    plot_policy_sealice_levels_over_lambdas(EXPERIMENT_CONFIG, POMDP_CONFIG)
-    plot_policy_treatment_cost_over_lambdas(EXPERIMENT_CONFIG, POMDP_CONFIG)
-    plot_policy_sealice_levels_over_time(EXPERIMENT_CONFIG, POMDP_CONFIG, 0.6)
-    plot_policy_treatment_cost_over_time(EXPERIMENT_CONFIG, POMDP_CONFIG, 0.6)
-    plot_policy_reward_over_lambdas(EXPERIMENT_CONFIG, POMDP_CONFIG)
-
-    # Generate Pareto frontier
-    plot_pareto_frontier(EXPERIMENT_CONFIG, POMDP_CONFIG)
+    return EXPERIMENT_CONFIG, HEURISTIC_CONFIG
 
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    main(run_algorithms=true, run_plots=true, log_space=true)
+
+    run_algorithms_flag = true
+    log_space_flag = true
+    experiment_name_flag = "exp"
+
+    for arg in ARGS
+        if occursin("--experiment_name=", arg)
+            global experiment_name_flag = split(arg, "=")[2]
+        elseif arg == "--no-run_algorithms"
+            global run_algorithms_flag = false
+        elseif arg == "--no-log_space"
+            global log_space_flag = false
+        end
+    end
+
+    main(run_algorithms=run_algorithms_flag, log_space=log_space_flag, experiment_name=experiment_name_flag)
 end
