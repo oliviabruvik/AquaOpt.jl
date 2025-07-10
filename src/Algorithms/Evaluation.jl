@@ -21,7 +21,7 @@ using Parameters
 # ----------------------------
 # Optimizer Wrapper
 # ----------------------------
-function test_optimizer(algorithm, config, pomdp_config)
+function test_optimizer(algorithm, config)
 
     results = DataFrame(
         lambda=Float64[],
@@ -34,18 +34,42 @@ function test_optimizer(algorithm, config, pomdp_config)
     )
 
     # Create directory for simulation histories and results
-    histories_dir = joinpath(config.data_dir, "simulation_histories", algorithm.solver_name)
+    histories_dir = joinpath(config.data_dir, "simulation_histories", "$(algorithm.solver_name)")
     mkpath(histories_dir)
-    results_dir = joinpath(config.data_dir, "avg_results", algorithm.solver_name)
+    results_dir = joinpath(config.data_dir, "avg_results")
     mkpath(results_dir)
-    policies_dir = joinpath(config.data_dir, "policies", algorithm.solver_name)
+    policies_dir = joinpath(config.data_dir, "policies", "$(algorithm.solver_name)")
     mkpath(policies_dir)
 
     # Generate policies for each lambda
     for λ in config.lambda_values
 
+        # Generate POMDP and MDP
+        if config.log_space
+            pomdp = SeaLiceLogMDP(
+                lambda=λ,
+                costOfTreatment=config.costOfTreatment,
+                growthRate=config.growthRate,
+                rho=config.rho,
+                discount_factor=config.discount_factor,
+                skew=config.skew
+            )
+        else
+            pomdp = SeaLiceMDP(
+                lambda=λ,
+                costOfTreatment=config.costOfTreatment,
+                growthRate=config.growthRate,
+                rho=config.rho,
+                discount_factor=config.discount_factor,
+                skew=config.skew
+            )
+        end
+    
+        # Get the underlying MDP
+        mdp = UnderlyingMDP(pomdp)
+
         # Generate policy
-        policy, pomdp, mdp = generate_policy(algorithm, λ, pomdp_config)
+        policy = generate_policy(algorithm, pomdp, mdp)
 
         # Run simulation to calculate average cost and average sea lice level
         r_total_hists, action_hists, state_hists, measurement_hists, reward_hists, belief_hists = run_simulation(policy, mdp, pomdp, config, algorithm)
@@ -69,17 +93,17 @@ function test_optimizer(algorithm, config, pomdp_config)
         )
         
         # Save histories to file
-        history_filename = "hists_$(pomdp_config.log_space)_log_space_$(config.num_episodes)_episodes_$(config.steps_per_episode)_steps_$(λ)_lambda"
+        history_filename = "hists_$(λ)_lambda"
         @save joinpath(histories_dir, "$(history_filename).jld2") histories
         CSV.write(joinpath(histories_dir, "$(history_filename).csv"), DataFrame(histories))
 
         # Save policy, pomdp, and mdp to file
-        policy_pomdp_mdp_filename = "policy_pomdp_mdp_$(pomdp_config.log_space)_log_space_$(config.num_episodes)_episodes_$(config.steps_per_episode)_steps_$(λ)_lambda"
+        policy_pomdp_mdp_filename = "policy_pomdp_mdp_$(λ)_lambda"
         @save joinpath(policies_dir, "$(policy_pomdp_mdp_filename).jld2") policy pomdp mdp
     end
 
     # Save results
-    avg_results_filename = "avg_results_$(pomdp_config.log_space)_log_space_$(config.num_episodes)_episodes_$(config.steps_per_episode)_steps"
+    avg_results_filename = "$(algorithm.solver_name)_avg_results"
     @save joinpath(results_dir, "$(avg_results_filename).jld2") results
     
     return results
