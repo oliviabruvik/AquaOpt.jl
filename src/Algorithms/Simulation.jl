@@ -28,7 +28,8 @@ function run_simulation(policy, mdp, pomdp, config, algorithm)
             costOfTreatment=pomdp.costOfTreatment,
             growthRate=pomdp.growthRate,
             rho=pomdp.rho,
-            discount_factor=pomdp.discount_factor
+            discount_factor=pomdp.discount_factor,
+            skew=pomdp.skew
         )
     else
         SeaLiceSimMDP(
@@ -36,7 +37,8 @@ function run_simulation(policy, mdp, pomdp, config, algorithm)
             costOfTreatment=pomdp.costOfTreatment,
             growthRate=pomdp.growthRate,
             rho=pomdp.rho,
-            discount_factor=pomdp.discount_factor
+            discount_factor=pomdp.discount_factor,
+            skew=pomdp.skew
         )
     end
 
@@ -100,7 +102,11 @@ function simulate_helper(sim::RolloutSimulator, sim_pomdp::POMDP, policy::Policy
     while disc > sim.eps && !isterminal(sim_pomdp, s) && step <= sim.max_steps
 
         # Calculate b as beliefvec from normal distribution
-        norm_distr = Normal(b.μ[1], b.Σ[1,1])
+        if sim_pomdp.skew
+            norm_distr = SkewNormal(b.μ[1], b.Σ[1,1], 2.0)
+        else
+            norm_distr = Normal(b.μ[1], b.Σ[1,1])
+        end
 
         # Generate a belief vector from the normal distribution for POMDP policies
         if typeof(policy) <: ValueIterationPolicy
