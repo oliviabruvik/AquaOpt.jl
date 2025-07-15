@@ -12,6 +12,7 @@ using GaussianFilters
 using POMDPs
 using POMDPModels
 using POMDPTools
+using POMDPXFiles
 using DataFrames
 using JLD2
 using Plots
@@ -123,6 +124,11 @@ function create_pomdp_mdp(λ, config)
     pomdp_mdp_filename = "pomdp_mdp_$(λ)_lambda"
     pomdp_mdp_file_path = joinpath(pomdp_mdp_dir, "$(pomdp_mdp_filename).jld2")
     @save pomdp_mdp_file_path pomdp mdp
+
+    # Save POMDP as POMDPX file for NUS SARSOP
+    pomdpx_file_path = joinpath(pomdp_mdp_dir, "pomdp.pomdpx")
+    pomdpx = POMDPXFile(pomdpx_file_path)
+    POMDPXFiles.write(pomdp, pomdpx)
 
     return pomdp, mdp
 end

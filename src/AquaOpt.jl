@@ -16,10 +16,11 @@ ENV["PLOTS_BACKEND"] = "plotlyjs"
 using Logging
 using DiscreteValueIteration
 using GridInterpolations
-# using NativeSARSOP: SARSOPSolver
+using NativeSARSOP
 using SARSOP
 using POMDPs
 using POMDPTools
+using POMDPXFiles
 using Plots: plot, plot!, scatter, scatter!, heatmap, heatmap!, histogram, histogram!, savefig
 using LocalFunctionApproximation
 using LocalApproximationValueIteration
@@ -44,10 +45,21 @@ function main(;run_algorithms=true, log_space=true, experiment_name="exp", skew=
         Algorithm(solver_name="NoTreatment_Policy"),
         Algorithm(solver_name="Random_Policy"),
         Algorithm(solver_name="Heuristic_Policy", heuristic_config=HEURISTIC_CONFIG),
+        Algorithm(
+            solver=NativeSARSOP.SARSOPSolver(max_time=EXPERIMENT_CONFIG.sarsop_max_time, verbose=true),
+            solver_name="SARSOP_Policy",
+        ),
+        Algorithm(
+            solver=SARSOP.SARSOPSolver(
+                timeout=EXPERIMENT_CONFIG.sarsop_max_time,
+                verbose=true,
+                policy_filename=joinpath(EXPERIMENT_CONFIG.data_dir, "policies/NUS_SARSOP_Policy/policy.out"),
+                pomdp_filename=joinpath(EXPERIMENT_CONFIG.data_dir, "pomdp_mdp/pomdp.pomdpx")
+            ),
+            solver_name="NUS_SARSOP_Policy",
+        ),
         Algorithm(solver=ValueIterationSolver(max_iterations=EXPERIMENT_CONFIG.VI_max_iterations), solver_name="VI_Policy"),
         Algorithm(solver=QMDPSolver(max_iterations=EXPERIMENT_CONFIG.QMDP_max_iterations), solver_name="QMDP_Policy"),
-        # Algorithm(solver=SARSOPSolver(max_time=EXPERIMENT_CONFIG.sarsop_max_time, verbose=true), solver_name="SARSOP_Policy"),
-        Algorithm(solver=SARSOPSolver(timeout=EXPERIMENT_CONFIG.sarsop_max_time, verbose=true), solver_name="SARSOP_Policy")
     ]
 
     # Solve POMDPs and simulate policies
@@ -160,6 +172,10 @@ function setup_configs(experiment_name, log_space, skew=false, mode="light")
             experiment_name=exp_name,
             verbose=false,
             step_through=false,
+            lambda_values=[0.4, 0.6],
+            sarsop_max_time=5.0,
+            VI_max_iterations=10,
+            QMDP_max_iterations=10,
         )
     elseif mode == "debug"
         EXPERIMENT_CONFIG = ExperimentConfig(
@@ -213,6 +229,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
 
     run_algorithms_flag = true
     log_space_flag = true
+    skew_flag = false
     experiment_name_flag = "exp"
     mode_flag = "light"
 
@@ -225,10 +242,12 @@ if abspath(PROGRAM_FILE) == @__FILE__
             global run_algorithms_flag = false
         elseif arg == "--no-log_space"
             global log_space_flag = false
+        elseif arg == "--skew"
+            global skew_flag = true
         end
     end
 
     println("Running with mode: $mode_flag")
 
-    main(run_algorithms=run_algorithms_flag, log_space=log_space_flag, experiment_name=experiment_name_flag, mode=mode_flag)
+    main(run_algorithms=run_algorithms_flag, log_space=log_space_flag, experiment_name=experiment_name_flag, mode=mode_flag, skew=skew_flag)
 end
