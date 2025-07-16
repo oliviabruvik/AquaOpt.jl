@@ -122,7 +122,8 @@ function plot_policy_sealice_levels_over_time(config, lambda_value)
         "SARSOP_Policy" => (color=:green, marker=:diamond),
         "QMDP_Policy" => (color=:purple, marker=:dtriangle),
         "Random_Policy" => (color=:orange, marker=:rect),
-        "NoTreatment_Policy" => (color=:black, marker=:star)
+        "NeverTreat_Policy" => (color=:black, marker=:star),
+        "AlwaysTreat_Policy" => (color=:brown, marker=:dtriangle)
     )
     
     # Load and plot results for each policy
@@ -228,7 +229,8 @@ function plot_policy_treatment_cost_over_time(config, lambda_value)
         "SARSOP_Policy" => (color=:green, marker=:diamond),
         "QMDP_Policy" => (color=:purple, marker=:dtriangle),
         "Random_Policy" => (color=:orange, marker=:rect),
-        "NoTreatment_Policy" => (color=:black, marker=:star)
+        "NeverTreat_Policy" => (color=:black, marker=:star),
+        "AlwaysTreat_Policy" => (color=:brown, marker=:dtriangle)
     )
     
     # Load and plot results for each policy
@@ -330,7 +332,8 @@ function plot_policy_actual_treatment_cost_over_time(config, lambda_value)
         "SARSOP_Policy" => (color=:green, marker=:diamond),
         "QMDP_Policy" => (color=:purple, marker=:dtriangle),
         "Random_Policy" => (color=:orange, marker=:rect),
-        "NoTreatment_Policy" => (color=:black, marker=:star)
+        "NeverTreat_Policy" => (color=:black, marker=:star),
+        "AlwaysTreat_Policy" => (color=:brown, marker=:dtriangle)
     )
     
     # Load and plot results for each policy

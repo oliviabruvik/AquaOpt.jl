@@ -141,7 +141,8 @@ function plot_all_cost_vs_sealice(config)
         "QMDP_Policy" => :purple,
         "Heuristic_Policy" => :blue,
         "Random_Policy" => :orange,
-        "NoTreatment_Policy" => :black
+        "NeverTreat_Policy" => :black,
+        "AlwaysTreat_Policy" => :brown
     )
     
     # Load and plot each policy's results
@@ -279,7 +280,8 @@ function plot_policy_sealice_levels_over_lambdas(config)
         "SARSOP_Policy" => (color=:green, marker=:diamond),
         "QMDP_Policy" => (color=:purple, marker=:dtriangle),
         "Random_Policy" => (color=:orange, marker=:rect),
-        "NoTreatment_Policy" => (color=:black, marker=:star)
+        "NeverTreat_Policy" => (color=:black, marker=:star),
+        "AlwaysTreat_Policy" => (color=:brown, marker=:dtriangle)
     )
     
     # Load and plot results for each policy
@@ -368,7 +370,8 @@ function plot_policy_treatment_cost_over_lambdas(config)
         "SARSOP_Policy" => (color=:green, marker=:diamond),
         "QMDP_Policy" => (color=:purple, marker=:dtriangle),
         "Random_Policy" => (color=:orange, marker=:rect),
-        "NoTreatment_Policy" => (color=:black, marker=:star)
+        "NeverTreat_Policy" => (color=:black, marker=:star),
+        "AlwaysTreat_Policy" => (color=:brown, marker=:dtriangle)
     )
     
     # Load and plot results for each policy
@@ -453,7 +456,8 @@ function plot_policy_reward_over_lambdas(config)
         "SARSOP_Policy" => (color=:green, marker=:diamond),
         "QMDP_Policy" => (color=:purple, marker=:dtriangle),
         "Random_Policy" => (color=:orange, marker=:rect),
-        "NoTreatment_Policy" => (color=:black, marker=:star)
+        "NeverTreat_Policy" => (color=:black, marker=:star),
+        "AlwaysTreat_Policy" => (color=:brown, marker=:dtriangle)
     )
     
     # Load and plot results for each policy

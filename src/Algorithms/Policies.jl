@@ -27,8 +27,12 @@ function generate_policy(algorithm, pomdp, mdp)
         return RandomPolicy(pomdp)
 
     # No Treatment policy
-    elseif algorithm.solver_name == "NoTreatment_Policy"
-        return NoTreatmentPolicy(pomdp)
+    elseif algorithm.solver_name == "NeverTreat_Policy"
+        return NeverTreatPolicy(pomdp)
+
+    # Always Treat policy
+    elseif algorithm.solver_name == "AlwaysTreat_Policy"
+        return AlwaysTreatPolicy(pomdp)
 
     # Value Iteration policy
     elseif algorithm.solver isa ValueIterationSolver
@@ -36,23 +40,41 @@ function generate_policy(algorithm, pomdp, mdp)
 
     # SARSOP and QMDP policies
     else
+        @info "Solving with $(algorithm.solver_name)"
         return solve(algorithm.solver, pomdp)
+        @info "Done solving with $(algorithm.solver_name)"
     end
 end
 
 # ----------------------------
-# No Treatment Policy
+# Never Treat Policy
 # ----------------------------
-struct NoTreatmentPolicy{P<:POMDP} <: Policy
+struct NeverTreatPolicy{P<:POMDP} <: Policy
     pomdp::P
 end
 
-# No Treatment action
-function POMDPs.action(policy::NoTreatmentPolicy, b)
+# Never Treat action
+function POMDPs.action(policy::NeverTreatPolicy, b)
     return NoTreatment
 end
 
-function POMDPs.updater(policy::NoTreatmentPolicy)
+function POMDPs.updater(policy::NeverTreatPolicy)
+    return DiscreteUpdater(policy.pomdp)
+end
+
+# ----------------------------
+# Always Treat Policy
+# ----------------------------
+struct AlwaysTreatPolicy{P<:POMDP} <: Policy
+    pomdp::P
+end
+
+# Always Treat action
+function POMDPs.action(policy::AlwaysTreatPolicy, b)
+    return Treatment
+end
+
+function POMDPs.updater(policy::AlwaysTreatPolicy)
     return DiscreteUpdater(policy.pomdp)
 end
 

@@ -42,7 +42,8 @@ function main(;run_algorithms=true, log_space=true, experiment_name="exp", skew=
 
     # Define algorithms
     algorithms = [
-        Algorithm(solver_name="NoTreatment_Policy"),
+        Algorithm(solver_name="NeverTreat_Policy"),
+        Algorithm(solver_name="AlwaysTreat_Policy"),
         Algorithm(solver_name="Random_Policy"),
         Algorithm(solver_name="Heuristic_Policy", heuristic_config=HEURISTIC_CONFIG),
         Algorithm(
