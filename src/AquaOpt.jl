@@ -7,6 +7,7 @@ include("Plotting/Heatmaps.jl")
 include("Plotting/Timeseries.jl")
 include("Plotting/Comparison.jl")
 include("Utils/Config.jl")
+include("Utils/ExperimentTracking.jl")
 
 # Environment variables
 ENV["PLOTS_BROWSER"] = "true"
@@ -33,89 +34,63 @@ plotlyjs()  # Activate Plotly backend
 # ----------------------------
 function main(;run_algorithms=true, log_space=true, experiment_name="exp", skew=false, mode="light")
 
-    EXPERIMENT_CONFIG, HEURISTIC_CONFIG = setup_configs(
+    EXPERIMENT_CONFIG, HEURISTIC_CONFIG = setup_experiment_configs(
         experiment_name,
         log_space,
         skew,
         mode
     )
 
-    # Define algorithms
-    algorithms = [
-        Algorithm(solver_name="NeverTreat_Policy"),
-        Algorithm(solver_name="AlwaysTreat_Policy"),
-        Algorithm(solver_name="Random_Policy"),
-        Algorithm(solver_name="Heuristic_Policy", heuristic_config=HEURISTIC_CONFIG),
-        Algorithm(
-            solver=NativeSARSOP.SARSOPSolver(max_time=EXPERIMENT_CONFIG.sarsop_max_time, verbose=true),
-            solver_name="SARSOP_Policy",
-        ),
-        Algorithm(
-            solver=SARSOP.SARSOPSolver(
-                timeout=EXPERIMENT_CONFIG.sarsop_max_time,
-                verbose=true,
-                policy_filename=joinpath(EXPERIMENT_CONFIG.data_dir, "policies/NUS_SARSOP_Policy/policy.out"),
-                pomdp_filename=joinpath(EXPERIMENT_CONFIG.data_dir, "pomdp_mdp/pomdp.pomdpx")
-            ),
-            solver_name="NUS_SARSOP_Policy",
-        ),
-        Algorithm(solver=ValueIterationSolver(max_iterations=EXPERIMENT_CONFIG.VI_max_iterations), solver_name="VI_Policy"),
-        Algorithm(solver=QMDPSolver(max_iterations=EXPERIMENT_CONFIG.QMDP_max_iterations), solver_name="QMDP_Policy"),
-    ]
+    algorithms = define_algorithms(EXPERIMENT_CONFIG, HEURISTIC_CONFIG)
 
     # Solve POMDPs and simulate policies
     if run_algorithms
-        all_results = solve_and_simulate_algorithms(algorithms, EXPERIMENT_CONFIG)
-    else
-        @info "Skipping algorithms"
-        all_results = nothing
+
+        # Solve POMDPs
+        for algo in algorithms
+            @info "Solving $(algo.solver_name)"
+            generate_mdp_pomdp_policies(algo, EXPERIMENT_CONFIG)
+        end
+
+        # Simulate policies
+        for algo in algorithms
+            @info "Simulating $(algo.solver_name)"
+            histories = simulate_policy(algo, EXPERIMENT_CONFIG)
+            avg_results = evaluate_simulation_results(EXPERIMENT_CONFIG, algo, histories)
+        end
     end
 
     # Plot results
-    plot_results(all_results, algorithms, EXPERIMENT_CONFIG)
+    plot_results(algorithms, EXPERIMENT_CONFIG)
 
 end
 
-# ----------------------------
-# Solve and simulate algorithms
-# ----------------------------
-function solve_and_simulate_algorithms(algorithms, EXPERIMENT_CONFIG)
-
-    all_results = Dict{String, DataFrame}()
-    for algo in algorithms
-        @info "Running $(algo.solver_name)"
-        results = test_optimizer(algo, EXPERIMENT_CONFIG)
-        all_results[algo.solver_name] = results
-    end
-
-    # Save all results
-    mkpath(joinpath(EXPERIMENT_CONFIG.data_dir, "avg_results"))
-    @save joinpath(EXPERIMENT_CONFIG.data_dir, "avg_results", "All_policies_all_results.jld2") all_results
-
-    return all_results
-
-end
 
 # ----------------------------
 # Plot results
 # ----------------------------
-function plot_results(all_results, algorithms, EXPERIMENT_CONFIG)
+function plot_results(algorithms, EXPERIMENT_CONFIG)
 
     @info "Generating result plots"
 
-    if all_results == nothing
-        all_results = load_results(EXPERIMENT_CONFIG)
-    end
-
     # Plot individual policy plots
     for algo in algorithms
-        results = all_results[algo.solver_name]
+
+        # Load histories
+        histories_dir = joinpath(EXPERIMENT_CONFIG.data_dir, "simulation_histories", "$(algo.solver_name)")
+        histories_filename = "$(algo.solver_name)_histories"
+        @load joinpath(histories_dir, "$(histories_filename).jld2") histories
+
+        # Load avg results
+        results_dir = joinpath(EXPERIMENT_CONFIG.data_dir, "avg_results")
+        avg_results_filename = "$(algo.solver_name)_avg_results"
+        @load joinpath(results_dir, "$(avg_results_filename).jld2") avg_results
 
         # Plot policy cost vs sealice
-        plot_policy_cost_vs_sealice(results, algo.solver_name, EXPERIMENT_CONFIG)
+        plot_policy_cost_vs_sealice(histories, avg_results, algo.solver_name, EXPERIMENT_CONFIG)
 
         # Plot policy belief levels
-        plot_policy_belief_levels(results, algo.solver_name, EXPERIMENT_CONFIG, 0.6)
+        plot_policy_belief_levels(histories, algo.solver_name, EXPERIMENT_CONFIG, 0.6)
 
         # Plot treatment heatmap
         plot_treatment_heatmap(algo, EXPERIMENT_CONFIG)
@@ -139,30 +114,18 @@ function plot_results(all_results, algorithms, EXPERIMENT_CONFIG)
 end
 
 # ----------------------------
-# Load all results from file
-# ----------------------------
-function load_results(EXPERIMENT_CONFIG)
-
-    results_file_path = joinpath(EXPERIMENT_CONFIG.data_dir, "avg_results", "All_policies_all_results.jld2")
-
-    if isfile(results_file_path)
-        @load results_file_path all_results
-    else
-        @info "Results file not found at $results_file_path, running algorithms and simulations"
-        solve_and_simulate_algorithms(algorithms, EXPERIMENT_CONFIG)
-        @load results_file_path all_results
-    end
-
-    return all_results
-end
-
-# ----------------------------
 # Set up and save experiment configuration
 # ----------------------------
-function setup_configs(experiment_name, log_space, skew=false, mode="light")
+function setup_experiment_configs(experiment_name, log_space, skew=false, mode="light")
+
+    @info "Setting up experiment configurations"
+    @info "Experiment name: $experiment_name"
+    @info "Log space: $log_space"
+    @info "Skew: $skew"
+    @info "Mode: $mode"
 
     # Define experiment configuration
-    exp_name = string(Dates.now()) * "_" * experiment_name * "_mode_" * string(mode)
+    exp_name = string(Dates.today(), "/", Dates.now(), "_", experiment_name, "_mode_", mode)
 
     if mode == "light"
         EXPERIMENT_CONFIG = ExperimentConfig(
@@ -222,9 +185,49 @@ function setup_configs(experiment_name, log_space, skew=false, mode="light")
         end
     end
 
+    # Log experiment configuration
+    save_experiment_config(EXPERIMENT_CONFIG, HEURISTIC_CONFIG)
+    latest_experiment = find_latest_experiment(EXPERIMENT_CONFIG, HEURISTIC_CONFIG)
+    @info "Latest experiment: $latest_experiment"
+
     return EXPERIMENT_CONFIG, HEURISTIC_CONFIG
 
 end
+
+# ----------------------------
+# Define algorithms
+# ----------------------------
+
+function define_algorithms(EXPERIMENT_CONFIG, HEURISTIC_CONFIG)
+
+    @info "Defining algorithms"
+
+    algorithms = [
+        Algorithm(solver_name="NeverTreat_Policy"),
+        Algorithm(solver_name="AlwaysTreat_Policy"),
+        Algorithm(solver_name="Random_Policy"),
+        Algorithm(solver_name="Heuristic_Policy", heuristic_config=HEURISTIC_CONFIG),
+        Algorithm(
+            solver=NativeSARSOP.SARSOPSolver(max_time=EXPERIMENT_CONFIG.sarsop_max_time, verbose=false), #true),
+            solver_name="SARSOP_Policy",
+        ),
+        Algorithm(
+            solver=SARSOP.SARSOPSolver(
+                timeout=EXPERIMENT_CONFIG.sarsop_max_time,
+                verbose=false, #true),
+                policy_filename=joinpath(EXPERIMENT_CONFIG.data_dir, "policies/NUS_SARSOP_Policy/policy.out"),
+                pomdp_filename=joinpath(EXPERIMENT_CONFIG.data_dir, "pomdp_mdp/pomdp.pomdpx")
+            ),
+            solver_name="NUS_SARSOP_Policy",
+        ),
+        Algorithm(solver=ValueIterationSolver(max_iterations=EXPERIMENT_CONFIG.VI_max_iterations), solver_name="VI_Policy"),
+        Algorithm(solver=QMDPSolver(max_iterations=EXPERIMENT_CONFIG.QMDP_max_iterations), solver_name="QMDP_Policy"),
+    ]
+
+    return algorithms
+
+end
+
 
 if abspath(PROGRAM_FILE) == @__FILE__
 

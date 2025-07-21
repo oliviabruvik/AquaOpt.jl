@@ -23,7 +23,10 @@ using Dates
 # ----------------------------
 
 # No treat policy
-no_treat_algo = Algorithm(solver_name="NoTreatment_Policy")
+never_treat_algo = Algorithm(solver_name="NeverTreat_Policy")
+
+# Always treat policy
+always_treat_algo = Algorithm(solver_name="AlwaysTreat_Policy")
 
 # Random policy
 random_algo = Algorithm(solver_name="Random_Policy")
@@ -45,7 +48,7 @@ native_sarsop_algo = Algorithm(
 nus_sarsop_algo = Algorithm(
     solver=SARSOP.SARSOPSolver(
         timeout=5,
-        verbose=false,
+        verbose=true,
         policy_filename=joinpath("src", "Tests", "NUS_SARSOP.policy"),
         pomdp_filename=joinpath("src", "Tests", "NUS_SARSOP.pomdp")
     ),
@@ -66,7 +69,7 @@ function run_test(;log_space=true, skew=false, test_name="test", algo=nothing)
     @info "Running $test_name for $(algo.solver_name)."
 
     # Define experiment configuration
-    exp_name = joinpath("Tests", string(Dates.now(), "_", test_name))
+    exp_name = joinpath("Tests", string(Dates.today(), "/", Dates.now(), "_", test_name))
 
     EXPERIMENT_CONFIG = ExperimentConfig(
         num_episodes=2,
@@ -90,7 +93,10 @@ function run_test(;log_space=true, skew=false, test_name="test", algo=nothing)
     )
 
    try
-       results = test_optimizer(algo, EXPERIMENT_CONFIG)
+       generate_mdp_pomdp_policies(algo, EXPERIMENT_CONFIG)
+       histories = simulate_policy(algo, EXPERIMENT_CONFIG)
+       avg_results = evaluate_simulation_results(EXPERIMENT_CONFIG, algo, histories)
+
    catch e
        @error "Error running test $test_name"
        @error e
@@ -153,11 +159,11 @@ end
 # ----------------------------
 # Main function
 # ----------------------------
-policy_algos = [no_treat_algo, random_algo, heuristic_algo]
-solver_algos = [native_sarsop_algo, nus_sarsop_algo, qmdp_algo, vi_algo]
+policy_algos = [never_treat_algo, always_treat_algo, random_algo, heuristic_algo]
+solver_algos = [nus_sarsop_algo, native_sarsop_algo, qmdp_algo, vi_algo]
 all_algos = [policy_algos..., solver_algos...]
 
 run_non_log_space_non_skew_tests(all_algos)
-run_log_space_non_skew_tests(policy_algos)
+run_log_space_non_skew_tests(all_algos)
 # run_log_space_skew_tests(all_algos)
 # run_non_log_space_skew_tests(all_algos)

@@ -128,16 +128,6 @@ function simulate_helper(sim::RolloutSimulator, sim_pomdp::POMDP, policy::Policy
     disc = 1.0
     r_total = 0.0
 
-    # Get initial belief
-    # b = if sim_pomdp.skew
-    #     # norm_distr = SkewNormal(initial_belief.μ[1], initial_belief.Σ[1,1], 2.0)
-    #     # bvec = [pdf(initial_belief, s.SeaLiceLevel) for s in states(sim_pomdp)]
-    #     # bvec = normalize(bvec, 1)
-    #     initialize_belief(updater, initial_belief)
-    # else
-    #     initialize_belief(updater, initial_belief)
-    # end
-
     b = initialize_belief(updater, initial_belief)
 
     step = 1
@@ -232,13 +222,13 @@ end
 # ----------------------------
 # Calculate Averages
 # ----------------------------
-function calculate_averages(config, pomdp, action_hists, state_hists, reward_hists)
+function calculate_averages(config, action_hists, state_hists, reward_hists)
 
     total_steps = config.num_episodes * config.steps_per_episode
     total_cost, total_sealice, total_reward = 0.0, 0.0, 0.0
 
     for i in 1:config.num_episodes
-        total_cost += sum(a == Treatment for a in action_hists[i]) * pomdp.costOfTreatment
+        total_cost += sum(a == Treatment for a in action_hists[i]) * config.costOfTreatment
         # Handle both regular and log space states
         total_sealice += if typeof(state_hists[i][1]) <: SeaLiceLogState
             sum(exp(s.SeaLiceLevel) for s in state_hists[i])
