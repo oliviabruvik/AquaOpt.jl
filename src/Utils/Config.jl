@@ -3,7 +3,7 @@ using Parameters
 # ----------------------------
 # Experiment struct
 # ----------------------------
-@with_kw struct ExperimentConfig
+@with_kw mutable struct ExperimentConfig
 
     # Simulation parameters
     num_episodes::Int = 10

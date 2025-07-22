@@ -109,37 +109,54 @@ end
 # ----------------------------
 # Main function
 # ----------------------------
-function main(;solve=true, simulate=true, plot=true, log_space=true, experiment_name="exp", skew=false, mode="light")
+function main(;first_step_flag="solve", log_space=true, experiment_name="exp", skew=false, mode="light")
 
     config, heuristic_config = setup_experiment_configs(experiment_name, log_space, skew, mode)
     algorithms = define_algorithms(config, heuristic_config)
 
-    if solve
+    if first_step_flag == "solve"
         solve_policies(algorithms, config)
-    # elseif simulate
-    #     @info "Skipping policy solving"
-    #     # If we skip solving but want to simulate, we need to find the latest 
-    #     # experiment with the same policy parameters and use that experiment's config
-    #     latest_experiment = find_latest_experiment(config, heuristic_config)
-    #     @info "Latest experiment: $latest_experiment"
-    #     config, heuristic_config = load_experiment_config(latest_experiment)
-    # elseif plot
-    #     @info "Skipping policy solving and simulation"
-    #     # If we skip solving and simulation but want to plot, we need to find the latest 
-    #     # experiment with the same policy and simulation parameters and use that experiment's config
-    #     latest_experiment = find_latest_policy_config(config, heuristic_config)
-    #     @info "Latest experiment: $latest_experiment"
-    #     config, heuristic_config = load_experiment_config(latest_experiment)
-    #     # Load the policies
-    #     load_policies(algorithms, config)
-    end
-
-    if simulate
         simulate_policies(algorithms, config)
     end
 
-    if plot
-        plot_results(algorithms, config)
+    if first_step_flag == "simulate"
+        @info "Skipping policy solving"
+        # If we skip solving but want to simulate, we need to find the latest 
+        # experiment with the same policy parameters and use that experiment's policies_dir
+        latest_experiment_config = get_latest_matching_config(config, heuristic_config, false)
+
+        # Change policies_dir to the latest experiment's policies_dir
+        config.policies_dir = latest_experiment_config.policies_dir
+
+        simulate_policies(algorithms, config)
+    end
+
+    if first_step_flag == "plot"
+        @info "Skipping policy solving and simulation"
+        # If we skip solving and simulation but want to plot, we need to find the latest 
+        # experiment with the same policy and simulation parameters and use that experiment's config
+        latest_experiment_config = get_latest_matching_config(config, heuristic_config, true)
+        @info "Latest experiment: $latest_experiment_config"
+        config.policies_dir = latest_experiment_config.policies_dir
+        config.simulations_dir = latest_experiment_config.simulations_dir
+        config.results_dir = latest_experiment_config.results_dir
+    end
+
+    # Plot the results
+    plot_results(algorithms, config)
+
+    # Log experiment configuration in experiments.csv file with all experiments
+    @info "Saved experiment configuration to $(config.experiment_dir)/config/experiment_config.jld2"
+    save_experiment_config(config, heuristic_config, first_step_flag)
+
+    # Save config to file in current directory for easy access
+    mkpath(joinpath(config.experiment_dir, "config"))
+    @save joinpath(config.experiment_dir, "config", "experiment_config.jld2") config
+    open(joinpath(config.experiment_dir, "config", "experiment_config.txt"), "w") do io
+        for field in fieldnames(typeof(config))
+            value = getfield(config, field)
+            println(io, "$field: $value")
+        end
     end
 
 end
@@ -201,19 +218,6 @@ function setup_experiment_configs(experiment_name, log_space, skew=false, mode="
         rho=config.heuristic_rho
     )
 
-    # Write config to file
-    mkpath(joinpath(config.experiment_dir, "config"))
-    @save joinpath(config.experiment_dir, "config", "experiment_config.jld2") config
-    open(joinpath(config.experiment_dir, "config", "experiment_config.txt"), "w") do io
-        for field in fieldnames(typeof(config))
-            value = getfield(config, field)
-            println(io, "$field: $value")
-        end
-    end
-
-    # Log experiment configuration
-    save_experiment_config(config, heuristic_config)
-
     return config, heuristic_config
 
 end
@@ -251,9 +255,7 @@ end
 
 if abspath(PROGRAM_FILE) == @__FILE__
 
-    solve_flag = true
-    simulate_flag = true
-    plot_flag = true
+    first_step_flag = "solve" # "solve", "simulate", "plot"
     log_space_flag = true
     skew_flag = false
     experiment_name_flag = "exp"
@@ -264,12 +266,8 @@ if abspath(PROGRAM_FILE) == @__FILE__
             global experiment_name_flag = split(arg, "=")[2]
         elseif occursin("--mode=", arg)
             global mode_flag = split(arg, "=")[2]
-        elseif arg == "--no-solve"
-            global solve_flag = false
-        elseif arg == "--no-simulate"
-            global simulate_flag = false
-        elseif arg == "--no-plot"
-            global plot_flag = false
+        elseif occursin("--first_step=", arg)
+            global first_step_flag = String(split(arg, "=")[2])
         elseif arg == "--raw_space"
             global log_space_flag = false
         end
@@ -277,5 +275,5 @@ if abspath(PROGRAM_FILE) == @__FILE__
 
     @info "Running with mode: $mode_flag, log_space: $log_space_flag, skew: $skew_flag, experiment_name: $experiment_name_flag"
 
-    main(solve=solve_flag, simulate=simulate_flag, plot=plot_flag, log_space=log_space_flag, experiment_name=experiment_name_flag, mode=mode_flag, skew=skew_flag)
+    main(first_step_flag=first_step_flag, log_space=log_space_flag, experiment_name=experiment_name_flag, mode=mode_flag, skew=skew_flag)
 end
