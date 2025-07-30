@@ -1,1 +1,15 @@
 results/
+Manifest.toml
+Project.toml
+archieve/
+data/.DS_Store
+data/processed/
+data/raw/fish_disease.csv
+data/raw/lice_treatments.csv
+data/raw/salmon_lice.csv
+debug_plots/
+src/Tests/NUS_SARSOP.policy
+src/Tests/NUS_SARSOP.pomdp
+.DS_Store
+.vscode/launch.json
+.vscode/settings.json
