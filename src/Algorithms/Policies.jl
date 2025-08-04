@@ -221,27 +221,44 @@ end
 # Adaptor action
 function POMDPs.action(policy::AdaptorPolicy, b)
 
-    # Clamp gaussian distribution to the range of the sea lice range
-    # TODO: remove this once we have a better way to handle the sea lice range
-    # b.μ[1] = if policy.lofi_policy.pomdp isa SeaLiceLogMDP
-    #     clamp(b.μ[1][1], policy.lofi_policy.pomdp.min_log_lice_level, policy.lofi_policy.pomdp.max_log_lice_level)
-    # else
-    #     clamp(b.μ[1][1], policy.lofi_policy.pomdp.min_lice_level, policy.lofi_policy.pomdp.max_lice_level)
-    # end
-
     # Predict the next state
-    predicted_state = predict_next_lice(b.μ[1][1], b.μ[3][1], b.μ[2][1], b.μ[4][1])
-    predicted_state_std = sqrt(b.Σ[1,1])
+    pred_sessile, pred_motile, pred_adult = predict_next_lice(b.μ[1][1], b.μ[3][1], b.μ[2][1], b.μ[4][1])
+    adult_sd = sqrt(b.Σ[1,1])
 
     # Get next action from policy
     if policy.lofi_policy isa ValueIterationPolicy
-        hifi_a = action(policy.lofi_policy, SeaLiceState(predicted_state))
-    else
-        # Discretize alpha vectors (representation of utility over belief states per action)
-        state_space = states(policy.lofi_policy.pomdp)
-        bvec = discretize_distribution(Normal(predicted_state, predicted_state_std), state_space, policy.lofi_policy.pomdp.skew)
-        hifi_a = action(policy.lofi_policy, bvec)
+        return action(policy.lofi_policy, SeaLiceState(pred_adult))
     end
 
-    return hifi_a
+    # Discretize alpha vectors (representation of utility over belief states per action)
+    state_space = states(policy.lofi_policy.pomdp)
+    bvec = discretize_distribution(Normal(pred_adult, adult_sd), state_space, policy.lofi_policy.pomdp.skew)
+    return action(policy.lofi_policy, bvec)
+end
+
+# ----------------------------
+# Adaptor Look Ahead Policy
+# ----------------------------
+struct AdaptorLookAheadPolicy <: Policy
+    pomdp::POMDP
+    lofi_policy::Policy
+end
+
+# Adaptor action
+function POMDPs.action(policy::AdaptorLookAheadPolicy, b)
+
+    # Predict the abundance for the following week with no treatment
+    pred_sessile, pred_motile, pred_adult = predict_next_lice(b.μ[1][1], b.μ[3][1], b.μ[2][1], b.μ[4][1])
+    adult_sd = sqrt(b.Σ[1,1])
+
+    # Get next action from policy
+    if policy.lofi_policy isa ValueIterationPolicy
+        return action(policy.lofi_policy, SeaLiceState(pred_adult))
+    end
+
+    # Discretize alpha vectors (representation of utility over belief states per action)
+    state_space = states(policy.lofi_policy.pomdp)
+    bvec = discretize_distribution(Normal(pred_adult, adult_sd), state_space, policy.lofi_policy.pomdp.skew)
+    return action(policy.lofi_policy, bvec)
+
 end

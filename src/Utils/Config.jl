@@ -1,5 +1,7 @@
 using Parameters
 
+# TODO: checkout confparser.jl (read in TOML files)
+
 # ----------------------------
 # Experiment struct
 # ----------------------------
@@ -19,8 +21,13 @@ using Parameters
     growthRate::Float64 = 0.3 #1.26 # "The growth rate of sea lice is 0.3 per day." Costello (2006)
     rho::Float64 = 0.95 # "The treatment kills off 95% on all stages." DOI: 10.1016/j.aquaculture.2019.734329
     discount_factor::Float64 = 0.95
+    raw_space_sampling_sd::Float64 = 0.5
     log_space::Bool = false
     skew::Bool = false
+    sessile_mean::Float64 = 0.1
+    motile_mean::Float64 = 0.1
+    sessile_sd::Float64 = 0.05
+    motile_sd::Float64 = 0.05
 
     # Algorithm parameters
     lambda_values::Vector{Float64} = collect(0.0:0.2:1.0) # collect(0.0:0.05:1.0)
@@ -60,14 +67,14 @@ end
     heuristic_config::HeuristicConfig = HeuristicConfig()
 end
 
-# ----------------------------
-# POMDP config struct
-# ----------------------------
-@with_kw struct POMDPConfig
-    costOfTreatment::Float64 = 10.0
-    growthRate::Float64 = 1.26
-    rho::Float64 = 0.7
-    discount_factor::Float64 = 0.95
-    log_space::Bool = false
-    skew::Bool = false
-end
+# # ----------------------------
+# # POMDP config struct
+# # ----------------------------
+# @with_kw struct POMDPConfig
+#     costOfTreatment::Float64 = 10.0
+#     growthRate::Float64 = 1.26
+#     rho::Float64 = 0.7
+#     discount_factor::Float64 = 0.95
+#     log_space::Bool = false
+#     skew::Bool = false
+# end

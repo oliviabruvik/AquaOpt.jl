@@ -27,16 +27,17 @@ function initialize_belief(sim_pomdp, config)
     """
     if typeof(sim_pomdp) <: SeaLiceLogSimMDP
         return (
+            # TODO: fix this for log space
             Normal(sim_pomdp.log_lice_initial_mean, sim_pomdp.sampling_sd), # adult
-            Normal(0.1, 0.05), # sessile
-            Normal(0.1, 0.05), # motile
+            Normal(sim_pomdp.sessile_mean, sim_pomdp.sessile_sd), # sessile
+            Normal(sim_pomdp.motile_mean, sim_pomdp.motile_sd), # motile
             Normal(temperature_model(sim_pomdp.production_start_week), sim_pomdp.sampling_sd) # temperature
         )
     else
         return (
             Normal(sim_pomdp.sea_lice_initial_mean, sim_pomdp.sampling_sd), # adult
-            Normal(0.1, 0.05), # sessile
-            Normal(0.1, 0.05), # motile
+            Normal(sim_pomdp.sessile_mean, sim_pomdp.sessile_sd), # sessile
+            Normal(sim_pomdp.motile_mean, sim_pomdp.motile_sd), # motile
             Normal(temperature_model(sim_pomdp.production_start_week), sim_pomdp.sampling_sd) # temperature
         )
     end
@@ -82,7 +83,6 @@ function simulate_policy(algorithm, config)
         # Run all episodes in parallel
         data = run_all_episodes(adaptor_policy, mdp, pomdp, config, algorithm)
 
-
     end
 
     # Save results
@@ -120,7 +120,11 @@ function run_simulation(policy, mdp, pomdp, config, algorithm)
             rho=pomdp.rho,
             discount_factor=pomdp.discount_factor,
             skew=pomdp.skew,
-            sampling_sd=config.raw_space_sampling_sd
+            sampling_sd=config.raw_space_sampling_sd,
+            sessile_mean=config.sessile_mean,
+            motile_mean=config.motile_mean,
+            sessile_sd=config.sessile_sd,
+            motile_sd=config.motile_sd
         )
     end
 
@@ -220,10 +224,6 @@ function run_all_episodes(policy, mdp, pomdp, config, algorithm)
     grouped_df = groupby(data, :policy)
     result = combine(grouped_df, :reward => mean_and_ci => AsTable)
 
-    # Print the results to the console
-    # println(result)
-    
-    # Return both the DataFrame and the individual histories
     return data
 end
 
@@ -301,7 +301,16 @@ function simulate_all_policies(algorithms, config)
     end
 
     # Run the simulations in parallel
-    data = run_parallel(sim_list, proc_warn=false)
+    data = run_parallel(sim_list, proc_warn=false) do sim, hist
+        return (
+            reward = discounted_reward(hist),
+            n_steps = n_steps(hist),
+            history = hist,  # Store the full history
+            policy = sim.metadata[:policy],
+            lambda = sim.metadata[:lambda],
+            seed = sim.metadata[:seed]
+        )
+    end
 
     # Calculate the mean and confidence interval for each lambda and each policy
     for λ in config.lambda_values
@@ -331,5 +340,11 @@ function simulate_all_policies(algorithms, config)
         println(result)
     
     end
+
+    # Save data
+    mkpath(config.simulations_dir)
+    @save joinpath(config.simulations_dir, "all_policies_simulation_data.jld2") data
+
+    return data
 
 end
