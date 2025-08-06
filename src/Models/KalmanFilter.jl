@@ -1,5 +1,6 @@
 include("SimulationPOMDP.jl")
 include("SimulationLogPOMDP.jl")
+include("../Utils/Utils.jl")
 
 using POMDPs
 using GaussianFilters
@@ -12,16 +13,6 @@ using Random
 # --------------------------------------------
 mutable struct KalmanUpdater <: POMDPs.Updater
     filter::Union{ExtendedKalmanFilter, UnscentedKalmanFilter}
-end
-
-# --------------------------------------------
-# Temperature model used by both step and step_log
-# --------------------------------------------
-function get_temperature(annual_week)
-    T_mean = 9.0      # average annual temperature (°C)
-    T_amp = 4.5       # amplitude (°C)
-    peak_week = 27  # aligns peak with July (week ~27)
-    return T_mean + T_amp * cos(2π * (annual_week - peak_week) / 52)
 end
 
 # x is state, u is action
@@ -40,7 +31,7 @@ function step(x, u)
     sessile = x[3]
 
     # Get the temperature
-    temperature = get_temperature(annual_week)
+    temp = get_temperature(Int64(annual_week))
 
     # Weekly survival probabilities from Table 1 of Stige et al. 2025.
     s1 = 0.49  # sessile
@@ -49,8 +40,8 @@ function step(x, u)
     s4 = 0.61  # adult
 
     # Development fractions
-    d1_val = 1 / (1 + exp(-(-2.4 + 0.37 * (temperature - 9))))
-    d2_val = 1 / (1 + exp(-(-2.1 + 0.037 * (temperature - 9))))
+    d1_val = 1 / (1 + exp(-(-2.4 + 0.37 * (temp - 9))))
+    d2_val = 1 / (1 + exp(-(-2.1 + 0.037 * (temp - 9))))
 
     # Stage transitions
     next_sessile = s1 * sessile
@@ -66,7 +57,7 @@ function step(x, u)
     xp[1] = next_adult
     xp[2] = next_motile
     xp[3] = next_sessile
-    xp[4] = temperature
+    xp[4] = temp
 
     return xp
 end
@@ -85,7 +76,12 @@ function step_log(x, u)
     annual_week = u[2]
 
     # Get the temperature
-    temperature = get_temperature(annual_week)
+    temp = get_temperature(Int64(annual_week))
+
+    # Unpack the state
+    adult = x_raw[1]
+    motile = x_raw[2]
+    sessile = x_raw[3]
 
     # Weekly survival probabilities from Table 1 of Stige et al. 2025.
     s1 = 0.49  # sessile
@@ -94,13 +90,13 @@ function step_log(x, u)
     s4 = 0.61  # adult
 
     # Development fractions
-    d1_val = 1 / (1 + exp(-(-2.4 + 0.37 * (temperature - 9))))
-    d2_val = 1 / (1 + exp(-(-2.1 + 0.037 * (temperature - 9))))
+    d1_val = 1 / (1 + exp(-(-2.4 + 0.37 * (temp - 9))))
+    d2_val = 1 / (1 + exp(-(-2.1 + 0.037 * (temp - 9))))
 
     # Stage transitions
-    next_sessile = s1 * x_raw[2]
-    next_motile = s3 * (1 - d2_val) * x_raw[3] + s2 * d1_val * x_raw[2]
-    next_adult = s4 * x_raw[1] + d2_val * 0.5 * (s3 + s4) * x_raw[3]
+    next_sessile = s1 * sessile
+    next_motile = s3 * (1 - d2_val) * motile + s2 * d1_val * sessile
+    next_adult = s4 * adult + d2_val * 0.5 * (s3 + s4) * motile
 
     # Apply treatment
     if treatment == 1.0
@@ -111,7 +107,7 @@ function step_log(x, u)
     xp[1] = log(next_adult)
     xp[2] = log(next_motile)
     xp[3] = log(next_sessile)
-    xp[4] = temperature
+    xp[4] = temp
 
     return xp
 end

@@ -32,14 +32,14 @@ function initialize_belief(sim_pomdp, config)
             Normal(sim_pomdp.log_lice_initial_mean, sim_pomdp.sampling_sd), # adult
             Normal(sim_pomdp.motile_mean, sim_pomdp.motile_sd), # motile
             Normal(sim_pomdp.sessile_mean, sim_pomdp.sessile_sd), # sessile
-            Normal(temperature_model(sim_pomdp.production_start_week), sim_pomdp.sampling_sd) # temperature
+            Normal(get_temperature(sim_pomdp.production_start_week), sim_pomdp.sampling_sd) # temperature
         )
     else
         return (
             sim_pomdp.adult_mean + sim_pomdp.adult_dist,
             sim_pomdp.motile_mean + sim_pomdp.motile_dist,
             sim_pomdp.sessile_mean + sim_pomdp.sessile_dist,
-            temperature_model(sim_pomdp.production_start_week) + sim_pomdp.temp_dist,
+            get_temperature(sim_pomdp.production_start_week) + sim_pomdp.temp_dist,
         )
     end
 end

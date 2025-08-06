@@ -2,53 +2,32 @@ using Distributions
 using POMDPs
 
 # -------------------------
-# Discretized Normal Sampling Utility
-# -------------------------
-# "Returns a transition distribution that ensures all states are reachable."
-# function discretized_normal_points(mean::Float64, mdp::SeaLiceMDP, skew::Bool=false)
-
-#     if skew
-#         skew_factor = 2.0
-#         dist = SkewNormal(mean, mdp.sampling_sd, skew_factor)
-#     else
-#         dist = Normal(mean, mdp.sampling_sd)
-#     end
-
-#     # Calculate the points
-#     points = mean .+ mdp.sampling_sd .* [-3, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 3]
-#     if skew
-#         points = points .* (1 + 0.3 * skew_factor)
-#     end
-    
-#     # Ensure points are within the range of the sea lice range
-#     points = clamp.(points, mdp.min_lice_level, mdp.max_lice_level)
-
-#     # Calculate and normalize the probabilities
-#     probs = pdf.(dist, points)
-#     probs = normalize(probs, 1)
-    
-#     # Ensure we have at least one transition
-#     if length(points) == 0 || sum(probs) == 0
-#         # Fallback to mean state
-#         points = [mean]
-#         probs = [1.0]
-#     end
-
-#     return points, probs
-# end
-
-
-# -------------------------
 # Discretized Normal Distribution
 # -------------------------
 function discretize_distribution(dist::Distribution, space::Any, skew::Bool=false)
 
     probs = zeros(length(space))
     past_cdf = 0.0
+    
+    # Add safety check for NaN values
     for (i, s) in enumerate(space)
         curr_cdf = cdf(dist, s.SeaLiceLevel)
+        
+        # Check for NaN values
+        if isnan(curr_cdf)
+            @warn("NaN detected in CDF calculation. Distribution: $dist, State: $s")
+            # Fallback to uniform distribution
+            return fill(1.0/length(space), length(space))
+        end
+        
         probs[i] = curr_cdf - past_cdf
         past_cdf = curr_cdf
+    end
+
+    # Check for negative probabilities (shouldn't happen with CDF)
+    if any(x -> x < -1e-10, probs)
+        @warn("Negative probabilities detected, clamping to 0")
+        probs = max.(probs, 0.0)
     end
 
     if sum(probs) < 0.01
@@ -71,3 +50,12 @@ function discretize_distribution(dist::Distribution, space::Any, skew::Bool=fals
     return probs
 end
 
+# -------------------------
+# Temperature model: Return estimated weekly sea surface temperature (°C) for Norwegian salmon farms.
+# -------------------------
+function get_temperature(annual_week::Int64)
+    T_mean = 9.0      # average annual temperature (°C)
+    T_amp = 4.5       # amplitude (°C)
+    peak_week = 27      # aligns peak with July (week ~27)
+    return T_mean + T_amp * cos(2π * (annual_week - peak_week) / 52)
+end

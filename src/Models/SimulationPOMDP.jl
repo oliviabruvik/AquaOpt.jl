@@ -1,3 +1,5 @@
+include("../Utils/Utils.jl")
+
 using DataFrames
 import Distributions: Normal, Uniform
 using JLD2
@@ -88,16 +90,6 @@ POMDPs.discount(mdp::SeaLiceSimMDP) = mdp.discount_factor
 POMDPs.isterminal(mdp::SeaLiceSimMDP, s::EvaluationState) = false
 
 # -------------------------
-# Temperature model: Return estimated weekly sea surface temperature (°C) for Norwegian salmon farms.
-# -------------------------
-function temperature_model(annual_week::Int64)
-    T_mean = 9.0      # average annual temperature (°C)
-    T_amp = 4.5       # amplitude (°C)
-    peak_week = 27      # aligns peak with July (week ~27)
-    return T_mean + T_amp * cos(2π * (annual_week - peak_week) / 52)
-end
-
-# -------------------------
 # Development rate model: Return the expected development rate based on the temperature.
 # Based on A salmon lice prediction model, Stige et al. 2025.
 # https://www.sciencedirect.com/science/article/pii/S0167587724002915
@@ -144,7 +136,7 @@ function POMDPs.transition(pomdp::SeaLiceSimMDP, s::EvaluationState, a::Action)
         
         # Calculate temperature based on the current week
         # TODO: consider whether to use the next week or the current week since measurements are taken approximately daily
-        next_temp = temperature_model(s.AnnualWeek)
+        next_temp = get_temperature(s.AnnualWeek)
 
         # Predict the next adult sea lice level based on the current state and temperature
         next_adult, next_motile, next_sessile = predict_next_lice(s.Adult, s.Motile, s.Sessile, next_temp)
@@ -218,7 +210,7 @@ function POMDPs.initialstate(pomdp::SeaLiceSimMDP)
     ImplicitDistribution(pomdp) do pomdp, rng
 
         # Initial temperature upon production start
-        temperature = temperature_model(pomdp.production_start_week) + rand(rng, pomdp.temp_dist)
+        temperature = get_temperature(pomdp.production_start_week) + rand(rng, pomdp.temp_dist)
 
         # Initial sea lice level upon production start
         adult = clamp(pomdp.adult_mean + rand(rng, pomdp.adult_dist), pomdp.initial_bounds...)
