@@ -1,5 +1,7 @@
 using Plots
 using JLD2
+using GaussianFilters
+
 plotlyjs()  # Set the backend to PlotlyJS
 
 # ----------------------------
@@ -16,6 +18,111 @@ function plot_sealice_levels_over_time(df)
     )
     savefig(p, "results/figures/sealice_levels_over_time.png")
     return p
+end
+
+# ----------------------------
+# Plot 2: Time series of belief means and variances
+# Creates 6 plots:
+# 1. Belief means with ribbon and true values for each observation variable (Adult, Sessile, Motile, Temperature) *4 plots*
+# 2. Belief variances over time, overlay of all observation variables *1 plot*
+# 3. Side-by-side plot of belief means and variances for each observation variable (Adult, Sessile, Motile) *1 plot*
+# Inputs:
+# - data: DataFrame with simulation data
+# - algo_name: String, name of the algorithm
+# - config: ExperimentConfig, configuration object
+# - lambda: Float, lambda value
+# Outputs:
+# - Saves plots to config.figures_dir/belief_plots/algo_name/
+# - Returns nothing
+# ----------------------------
+function plot_beliefs_over_time(data, algo_name, config, lambda)
+
+    # Create directory for belief plots
+    output_dir = joinpath(config.figures_dir, "belief_plots", algo_name)
+    mkpath(output_dir)
+
+    # Filter the data to only include the algorithm and chosen lambda
+    data = filter(row -> row.policy == algo_name, data)
+    data = filter(row -> row.lambda == lambda, data)
+
+    # Extract first belief history for given solver
+    history = data.history[1]
+
+    # Extract beliefs
+    beliefs = belief_hist(history)
+    belief_means, belief_covariances = unpack(beliefs)
+
+    # Extract belief variances (diagonal of covariance matrices)
+    belief_variances = [diag(belief_covariances[i, :, :]) for i in 1:size(belief_covariances, 1)]
+    belief_variances_array = hcat(belief_variances...)'
+
+    # Extract states
+    states = state_hist(history)
+    states_df = DataFrame(
+        Adult = [s.Adult for s in states],
+        Sessile = [s.Sessile for s in states],
+        Motile = [s.Motile for s in states],
+        Temperature = [s.Temperature for s in states]
+    )
+    actions = action_hist(history)
+    actions = [a == Treatment ? "T" : "N" for a in actions]
+
+    labels = ["Adult", "Sessile", "Motile", "Temperature"]
+    colors = [:blue, :green, :orange, :purple]
+
+    belief_plots = []
+
+    # Plot 1–3: Adult, Sessile, Motile
+    for i in 1:3
+        belief_plot = plot(
+            belief_means[:, i],
+            ribbon=sqrt.(belief_variances_array[:, i]),
+            label="Belief mean",
+            title="KF Belief Trajectory of $(labels[i]) Abundance (λ = $lambda)",
+            xlabel="Timestep (weeks)",
+            ylabel="Abundance (average $(labels[i]) units per fish)",
+            linewidth=2,
+            color=colors[i],
+            alpha=0.5,
+            legend=:topright
+        )
+        scatter!(belief_plot, 1:size(states_df,1), states_df[:, i], label="True value", marker=:x, markersize=3, color=colors[i])
+
+        # Add treatment annotations
+        for (t, a) in zip(1:length(actions), actions)
+            annotate!(belief_plot, t, 0.0, text(a, 8, :black))
+        end
+        
+        push!(belief_plots, belief_plot)
+        savefig(belief_plots[i], joinpath(output_dir, "belief_means_$(labels[i])_lambda_$(lambda).png"))
+    end
+
+    # Plot 4: Temperature (not added to belief_plots)
+    p_temp = plot(
+        belief_means[:, 4],
+        ribbon=sqrt.(belief_variances_array[:, 4]),
+        label="Belief mean",
+        title="KF Belief Trajectory of Temperature (λ = $lambda)",
+        xlabel="Timestep (weeks)",
+        ylabel="Temperature (°C)",
+        linewidth=2,
+        color=colors[4],
+        alpha=0.5,
+        legend=:topright
+    )
+    scatter!(p_temp, 1:size(states_df,1), states_df[:, 4], label="True value", marker=:x, markersize=3, color=colors[4])
+    savefig(p_temp, joinpath(output_dir, "belief_means_Temperature_lambda_$(lambda).png"))
+
+    # Arrange 3 plots side by side
+    belief_plot_grid = plot(belief_plots[1:3]..., layout=(1, 3), size=(2000, 400))
+    savefig(belief_plot_grid, joinpath(output_dir, "belief_means_and_variances_split_lambda_$(lambda).png"))
+
+    # Plot variances over time
+    variance_plot = plot(title="KF Belief Variance Trajectory (λ = $lambda)", xlabel="Timestep (weeks)", ylabel="Variance")
+    for i in 1:length(labels)
+        plot!(variance_plot, belief_variances_array[:, i], label="Belief $(labels[i])")
+    end
+    savefig(variance_plot, joinpath(output_dir, "belief_variances_lambda_$(lambda).png"))
 end
 
 # ----------------------------

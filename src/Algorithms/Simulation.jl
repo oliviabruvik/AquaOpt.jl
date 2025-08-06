@@ -10,6 +10,7 @@ using Parameters
 using Statistics
 using Base.Sys
 using StatsBase: std
+using Random
 
 include("../../src/Utils/Utils.jl")
 include("../../src/Models/SeaLiceLogPOMDP.jl")
@@ -35,10 +36,10 @@ function initialize_belief(sim_pomdp, config)
         )
     else
         return (
-            Normal(sim_pomdp.sea_lice_initial_mean, sim_pomdp.sampling_sd), # adult
-            Normal(sim_pomdp.sessile_mean, sim_pomdp.sessile_sd), # sessile
-            Normal(sim_pomdp.motile_mean, sim_pomdp.motile_sd), # motile
-            Normal(temperature_model(sim_pomdp.production_start_week), sim_pomdp.sampling_sd) # temperature
+            sim_pomdp.adult_mean + sim_pomdp.adult_dist,
+            sim_pomdp.sessile_mean + sim_pomdp.sessile_dist,
+            sim_pomdp.motile_mean + sim_pomdp.motile_dist,
+            temperature_model(sim_pomdp.production_start_week) + sim_pomdp.temp_dist,
         )
     end
 end
@@ -50,6 +51,39 @@ function mean_and_ci(x)
     m = mean(x)
     ci = 1.96 * std(x) / sqrt(length(x))  # 95% confidence interval
     return (mean = m, ci = ci)
+end
+
+# ----------------------------
+# Create Sim POMDP based on whether we're in log space
+# ----------------------------
+function create_sim_pomdp(config, λ)    # TODO: fix this for log space
+
+   if config.log_space
+        return SeaLiceLogSimMDP(
+            lambda=λ,
+            costOfTreatment=config.costOfTreatment,
+            rho=config.rho,
+            discount_factor=config.discount_factor,
+            skew=config.skew,
+            sampling_sd=abs(log(config.raw_space_sampling_sd))
+        )
+    else
+        return SeaLiceSimMDP(
+            lambda=λ,
+            costOfTreatment=config.costOfTreatment,
+            rho=config.rho,
+            discount_factor=config.discount_factor,
+            skew=config.skew,
+            # SimPOMDP parameters
+            adult_mean=config.adult_mean,
+            sessile_mean=config.sessile_mean,
+            motile_mean=config.motile_mean,
+            adult_sd=config.adult_sd,
+            sessile_sd=config.sessile_sd,
+            motile_sd=config.motile_sd,
+            temp_sd=config.temp_sd,
+        )
+    end
 end
 
 # ----------------------------
@@ -102,40 +136,18 @@ function run_simulation(policy, mdp, pomdp, config, algorithm)
     histories = []
 
     # Create simulator POMDP based on whether we're in log space
-    sim_pomdp = if typeof(pomdp) <: SeaLiceLogMDP
-        SeaLiceLogSimMDP(
-            lambda=pomdp.lambda,
-            costOfTreatment=pomdp.costOfTreatment,
-            growthRate=pomdp.growthRate,
-            rho=pomdp.rho,
-            discount_factor=pomdp.discount_factor,
-            skew=pomdp.skew,
-            sampling_sd=abs(log(config.raw_space_sampling_sd))
-        )
-    else
-        SeaLiceSimMDP(
-            lambda=pomdp.lambda,
-            costOfTreatment=pomdp.costOfTreatment,
-            growthRate=pomdp.growthRate,
-            rho=pomdp.rho,
-            discount_factor=pomdp.discount_factor,
-            skew=pomdp.skew,
-            sampling_sd=config.raw_space_sampling_sd,
-            sessile_mean=config.sessile_mean,
-            motile_mean=config.motile_mean,
-            sessile_sd=config.sessile_sd,
-            motile_sd=config.motile_sd
-        )
-    end
+    sim_pomdp = create_sim_pomdp(config, pomdp.lambda)
 
     # Create simulator
     # sim = RolloutSimulator(max_steps=config.steps_per_episode)
     hr = HistoryRecorder(max_steps=config.steps_per_episode)
-    kf = build_kf(sim_pomdp, process_noise=config.process_noise, observation_noise=config.observation_noise, ekf_filter=config.ekf_filter)
+    kf = build_kf(sim_pomdp, ekf_filter=config.ekf_filter)
     updater = KalmanUpdater(kf)
 
     # Run simulation for each episode
     for episode in 1:config.num_episodes
+
+        # println("\n Running episode $(episode) of $(algorithm) with process_noise $(sim_pomdp.adult_sd), $(sim_pomdp.sessile_sd), $(sim_pomdp.motile_sd), $(sim_pomdp.temp_sd)")
 
         # Get initial belief from initial mean and sampling sd
         initial_belief = initialize_belief(sim_pomdp, config)
@@ -157,32 +169,12 @@ function run_all_episodes(policy, mdp, pomdp, config, algorithm)
     starting_seed = 1
 
     # Create simulator POMDP based on whether we're in log space
-    sim_pomdp = if typeof(pomdp) <: SeaLiceLogMDP
-        SeaLiceLogSimMDP(
-            lambda=pomdp.lambda,
-            costOfTreatment=pomdp.costOfTreatment,
-            growthRate=pomdp.growthRate,
-            rho=pomdp.rho,
-            discount_factor=pomdp.discount_factor,
-            skew=pomdp.skew,
-            sampling_sd=abs(log(config.raw_space_sampling_sd))
-        )
-    else
-        SeaLiceSimMDP(
-            lambda=pomdp.lambda,
-            costOfTreatment=pomdp.costOfTreatment,
-            growthRate=pomdp.growthRate,
-            rho=pomdp.rho,
-            discount_factor=pomdp.discount_factor,
-            skew=pomdp.skew,
-            sampling_sd=config.raw_space_sampling_sd
-        )
-    end
+    sim_pomdp = create_sim_pomdp(config, pomdp.lambda)
 
     # Create simulator
     # sim = RolloutSimulator(max_steps=config.steps_per_episode)
     hr = HistoryRecorder(max_steps=config.steps_per_episode)
-    kf = build_kf(sim_pomdp, process_noise=config.process_noise, observation_noise=config.observation_noise, ekf_filter=config.ekf_filter)
+    kf = build_kf(sim_pomdp, ekf_filter=config.ekf_filter)
     updater = KalmanUpdater(kf)
 
     # Get initial belief from initial mean and sampling sd
@@ -242,32 +234,12 @@ function simulate_all_policies(algorithms, config)
     for λ in config.lambda_values
 
         # Create simulator POMDP based on whether we're in log space
-        sim_pomdp = if config.log_space
-            SeaLiceLogSimMDP(
-                lambda=λ,
-                costOfTreatment=config.costOfTreatment,
-                growthRate=config.growthRate,
-                rho=config.rho,
-                discount_factor=config.discount_factor,
-                skew=config.skew,
-                sampling_sd=abs(log(config.raw_space_sampling_sd))
-            )
-        else # raw space
-            SeaLiceSimMDP(
-                lambda=λ,
-                costOfTreatment=config.costOfTreatment,
-                growthRate=config.growthRate,
-                rho=config.rho,
-                discount_factor=config.discount_factor,
-                skew=config.skew,
-                sampling_sd=config.raw_space_sampling_sd
-            )
-        end
+        sim_pomdp = create_sim_pomdp(config, λ)
 
         # Create simulator
         # sim = RolloutSimulator(max_steps=config.steps_per_episode)
         hr = HistoryRecorder(max_steps=config.steps_per_episode)
-        kf = build_kf(sim_pomdp, process_noise=config.process_noise, observation_noise=config.observation_noise, ekf_filter=config.ekf_filter)
+        kf = build_kf(sim_pomdp, ekf_filter=config.ekf_filter)
         updater = KalmanUpdater(kf)
 
         # Get initial belief from initial mean and sampling sd
@@ -344,6 +316,7 @@ function simulate_all_policies(algorithms, config)
     # Save data
     mkpath(config.simulations_dir)
     @save joinpath(config.simulations_dir, "all_policies_simulation_data.jld2") data
+    println("Saved data to $(config.simulations_dir)/all_policies_simulation_data.jld2")
 
     return data
 

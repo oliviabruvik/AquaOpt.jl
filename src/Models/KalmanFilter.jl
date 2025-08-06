@@ -7,17 +7,7 @@ using Distributions
 using LinearAlgebra
 using Random
 
-# struct KFUpdaterStruct
-#     # ekf_abundance::ExtendedKalmanFilter
-#     # ukf_abundance::UnscentedKalmanFilter
-#     # ekf_temp::ExtendedKalmanFilter
-#     # ukf_temp::UnscentedKalmanFilter
-#     ekf::ExtendedKalmanFilter
-#     ukf::UnscentedKalmanFilter
-#     pomdp::Union{SeaLiceSimMDP, SeaLiceLogSimMDP}
-# end
-
-struct KalmanUpdater <: POMDPs.Updater
+mutable struct KalmanUpdater <: POMDPs.Updater
     filter::Union{ExtendedKalmanFilter, UnscentedKalmanFilter}
 end
 
@@ -116,16 +106,19 @@ function step_log(x, u)
 end
 
 # build dynamics model
+# Returns a 4D vector: [lice_abundance, sessile, motile, temperature]
 function observe(x, u)
-    return x # Now returns a 4D vector: [lice_abundance, sessile, motile, temperature]
+    return x  # The noise is handled by the observation model's V matrix
 end
 
 # Extended Kalman Filter Updater
-function build_kf(pomdp::Union{SeaLiceSimMDP, SeaLiceLogSimMDP}; process_noise=process_noise, observation_noise=observation_noise, ekf_filter=ekf_filter)
+function build_kf(pomdp::Union{SeaLiceSimMDP, SeaLiceLogSimMDP}; ekf_filter=ekf_filter)
     
-    # Create noise matrices
-    W = process_noise^2 * Matrix{Float64}(I, 4, 4)
-    V = observation_noise^2 * Matrix{Float64}(I, 4, 4)
+    # Create noise matrices with the diagonal elements being adult, sessile, motile, temperature
+    # The W matrix stores the process noise for each state variable
+    # The V matrix stores the observation noise for each state variable
+    W = Diagonal([pomdp.adult_sd^2, pomdp.sessile_sd^2, pomdp.motile_sd^2, pomdp.temp_sd^2])
+    V = Diagonal([pomdp.adult_sd^2, pomdp.sessile_sd^2, pomdp.motile_sd^2, pomdp.temp_sd^2])
 
     # Create dynamics and observation models
     step_func = typeof(pomdp) <: SeaLiceLogSimMDP ? step_log : step
@@ -140,16 +133,12 @@ function build_kf(pomdp::Union{SeaLiceSimMDP, SeaLiceLogSimMDP}; process_noise=p
     end
 end
 
-# POMDPs.updater(policy::Policy, pomdp::SeaLiceSimMDP) = EKFUpdater(pomdp, process_noise=ST_DEV, observation_noise=ST_DEV)
-
 function POMDPs.initialize_belief(updater::KalmanUpdater, dist::Tuple{Distribution, Distribution, Distribution, Distribution})
-    mean_vec = [mean(dist[1]), mean(dist[2]), mean(dist[3]), mean(dist[4])]
-    cov_mat =Matrix{Float64}(I, 4, 4)
-    cov_mat[1, 1] = std(dist[1])^2
-    cov_mat[2, 2] = std(dist[2])^2
-    cov_mat[3, 3] = std(dist[3])^2
-    cov_mat[4, 4] = std(dist[4])^2
-    return GaussianBelief(mean_vec, cov_mat)
+    μ0 = mean.([dist[1], dist[2], dist[3], dist[4]])
+    σ2s = std.([dist[1], dist[2], dist[3], dist[4]]).^2
+    Σ0 = Diagonal(σ2s)
+    
+    return GaussianBelief(μ0, Σ0)
 end
 
 function POMDPs.update(updater::KalmanUpdater, b0::GaussianBelief, a::Action, o::Union{SeaLiceObservation, SeaLiceLogObservation, EvaluationObservation})
@@ -158,5 +147,8 @@ function POMDPs.update(updater::KalmanUpdater, b0::GaussianBelief, a::Action, o:
     # We're passing in the annual week to the action because the dynamics model depends on it for the temperature model
     action = [a == Treatment ? 1.0 : 0.0, o.AnnualWeek]
     observation = [o.SeaLiceLevel, o.Sessile, o.Motile, o.Temperature]
-    return GaussianFilters.update(updater.filter, b0, action, observation)
+    
+    b = GaussianFilters.update(updater.filter, b0, action, observation)
+
+    return b
 end

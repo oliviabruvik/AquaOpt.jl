@@ -70,6 +70,14 @@ function plot_results(algorithms, config)
         end
         @load histories_path histories
 
+        # Load data from parallel simulations
+        data_path = joinpath(config.simulations_dir, "all_policies_simulation_data.jld2")
+        if !isfile(data_path)
+            @error "Data file not found at $data_path. Run simulation first. with --simulate"
+            continue
+        end
+        @load data_path data
+
         # Load avg results
         avg_results_path = joinpath(config.results_dir, "$(algo.solver_name)_avg_results.jld2")
         if !isfile(avg_results_path)
@@ -77,6 +85,9 @@ function plot_results(algorithms, config)
             continue
         end
         @load avg_results_path avg_results
+
+        # Plot belief means and variances
+        plot_beliefs_over_time(data, algo.solver_name, config, 0.6)
 
         # Plot policy cost vs sealice
         plot_policy_cost_vs_sealice(histories, avg_results, algo.solver_name, config)
@@ -250,7 +261,7 @@ function define_algorithms(config, heuristic_config)
         Algorithm(solver_name="AlwaysTreat_Policy"),
         Algorithm(solver_name="Random_Policy"),
         Algorithm(solver_name="Heuristic_Policy", heuristic_config=heuristic_config),
-        # Algorithm(solver=native_sarsop_solver, solver_name="SARSOP_Policy"),
+        ## Algorithm(solver=native_sarsop_solver, solver_name="SARSOP_Policy"),
         Algorithm(solver=nus_sarsop_solver, solver_name="NUS_SARSOP_Policy"),
         Algorithm(solver=vi_solver, solver_name="VI_Policy"),
         Algorithm(solver=qmdp_solver, solver_name="QMDP_Policy"),

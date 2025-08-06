@@ -18,12 +18,12 @@ include("../Utils/Utils.jl")
 # -------------------------
 # State, Observation, Action
 # -------------------------
-"State representing the sea lice level."
+"State representing the predicted sea lice level the following week."
 struct SeaLiceState
 	SeaLiceLevel::Float64
 end
 
-"Observation representing an observed sea lice level."
+"Observation representing an observed sea lice level the following week."
 struct SeaLiceObservation
 	SeaLiceLevel::Float64
 end
@@ -38,8 +38,8 @@ end
 @with_kw struct SeaLiceMDP <: POMDP{SeaLiceState, Action, SeaLiceObservation}
 	lambda::Float64 = 0.5
 	costOfTreatment::Float64 = 10.0
-	growthRate::Float64 = 1.2
-	rho::Float64 = 0.7
+	growthRate::Float64 = 0.3
+	rho::Float64 = 0.95
     discount_factor::Float64 = 0.95
     skew::Bool = false
     min_lice_level::Float64 = 0.0
@@ -50,7 +50,7 @@ end
     num_points::Int = Int((max_lice_level - min_lice_level) / discretization_step) + 1
     sea_lice_range::Vector{Float64} = collect(min_lice_level:discretization_step:max_lice_level)
     initial_range::Vector{Float64} = collect(min_initial_level:discretization_step:max_initial_level)
-    sampling_sd::Float64 = 2 # TODO: debug sampling sd and its significance
+    adult_sd::Float64 = 0.1
     lindisc::LinearDiscretizer = LinearDiscretizer(collect(min_lice_level:discretization_step:(max_lice_level+discretization_step)))
     catdisc::CategoricalDiscretizer = CategoricalDiscretizer([NoTreatment, Treatment])
 end
@@ -92,8 +92,19 @@ function POMDPs.transition(mdp::SeaLiceMDP, s::SeaLiceState, a::Action)
     # TODO: consider the correctness of this
     μ = clamp(μ, mdp.min_lice_level, mdp.max_lice_level)
 
+    # Safety check for invalid parameters
+    if isnan(μ) || isinf(μ)
+        @warn("Invalid mean detected: μ=$μ, state=$s, action=$a")
+        # Fallback to current state
+        states = POMDPs.states(mdp)
+        probs = zeros(length(states))
+        state_idx = argmin(abs.([s.SeaLiceLevel for s in states] .- s.SeaLiceLevel))
+        probs[state_idx] = 1.0
+        return SparseCat(states, probs)
+    end
+
     # Get the distribution
-    dist = truncated(Normal(μ, mdp.sampling_sd), mdp.min_lice_level, mdp.max_lice_level)
+    dist = truncated(Normal(μ, mdp.adult_sd), mdp.min_lice_level, mdp.max_lice_level)
 
     # Get the states
     states = POMDPs.states(mdp)
@@ -107,7 +118,7 @@ end
 function POMDPs.observation(mdp::SeaLiceMDP, a::Action, s::SeaLiceState)
 
     # Get the distribution
-    dist = truncated(Normal(s.SeaLiceLevel, mdp.sampling_sd), mdp.min_lice_level, mdp.max_lice_level)
+    dist = truncated(Normal(s.SeaLiceLevel, mdp.adult_sd), mdp.min_lice_level, mdp.max_lice_level)
 
     # Get the observations
     observations = POMDPs.observations(mdp)
@@ -134,3 +145,13 @@ function POMDPs.initialstate(mdp::SeaLiceMDP)
     states = [SeaLiceState(round(i, digits=1)) for i in mdp.initial_range]
     return SparseCat(states, fill(1/length(states), length(states)))
 end
+
+# function POMDPs.action(policy::Policy, s::SeaLiceState)
+
+# end
+
+# function POMDPs.action(mdp::SeaLiceMDP, b::Vector{Float64})
+
+# end
+
+    

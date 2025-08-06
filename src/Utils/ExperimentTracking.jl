@@ -12,8 +12,8 @@ function save_experiment_config(config::ExperimentConfig, heuristic_config::Heur
         # Simulation parameters
         num_episodes = config.num_episodes,
         steps_per_episode = config.steps_per_episode,
-        process_noise = config.process_noise,
-        observation_noise = config.observation_noise,
+        process_noise = 0.0,
+        observation_noise = 0.0,
         ekf_filter = config.ekf_filter,
 
         # POMDP parameters

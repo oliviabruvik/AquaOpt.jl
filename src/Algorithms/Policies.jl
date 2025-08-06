@@ -38,7 +38,7 @@ function create_pomdp_mdp(λ, config)
             growthRate=config.growthRate,
             rho=config.rho,
             discount_factor=config.discount_factor,
-            sampling_sd=config.raw_space_sampling_sd,
+            adult_sd=config.raw_space_sampling_sd,
             skew=config.skew
         )
     end
@@ -226,6 +226,7 @@ function POMDPs.action(policy::AdaptorPolicy, b)
     adult_sd = sqrt(b.Σ[1,1])
 
     # Get next action from policy
+    # TODO: write wrapper around ValueIterationPolicy action function that takes a belief vector and converts it to a state
     if policy.lofi_policy isa ValueIterationPolicy
         return action(policy.lofi_policy, SeaLiceState(pred_adult))
     end
@@ -234,31 +235,4 @@ function POMDPs.action(policy::AdaptorPolicy, b)
     state_space = states(policy.lofi_policy.pomdp)
     bvec = discretize_distribution(Normal(pred_adult, adult_sd), state_space, policy.lofi_policy.pomdp.skew)
     return action(policy.lofi_policy, bvec)
-end
-
-# ----------------------------
-# Adaptor Look Ahead Policy
-# ----------------------------
-struct AdaptorLookAheadPolicy <: Policy
-    pomdp::POMDP
-    lofi_policy::Policy
-end
-
-# Adaptor action
-function POMDPs.action(policy::AdaptorLookAheadPolicy, b)
-
-    # Predict the abundance for the following week with no treatment
-    pred_sessile, pred_motile, pred_adult = predict_next_lice(b.μ[1][1], b.μ[3][1], b.μ[2][1], b.μ[4][1])
-    adult_sd = sqrt(b.Σ[1,1])
-
-    # Get next action from policy
-    if policy.lofi_policy isa ValueIterationPolicy
-        return action(policy.lofi_policy, SeaLiceState(pred_adult))
-    end
-
-    # Discretize alpha vectors (representation of utility over belief states per action)
-    state_space = states(policy.lofi_policy.pomdp)
-    bvec = discretize_distribution(Normal(pred_adult, adult_sd), state_space, policy.lofi_policy.pomdp.skew)
-    return action(policy.lofi_policy, bvec)
-
 end

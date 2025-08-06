@@ -10,9 +10,7 @@ using Parameters
     # Simulation parameters
     num_episodes::Int = 10
     steps_per_episode::Int = 20
-    process_noise::Float64 = 0.5
-    observation_noise::Float64 = 0.5
-    ekf_filter::Bool = false
+    ekf_filter::Bool = true
     step_through::Bool = false
     verbose::Bool = false
     
@@ -24,13 +22,18 @@ using Parameters
     raw_space_sampling_sd::Float64 = 0.5
     log_space::Bool = false
     skew::Bool = false
-    sessile_mean::Float64 = 0.1
-    motile_mean::Float64 = 0.1
-    sessile_sd::Float64 = 0.05
-    motile_sd::Float64 = 0.05
+
+    # SimPOMDP parameters
+    adult_mean::Float64 = 0.125
+    sessile_mean::Float64 = 0.5
+    motile_mean::Float64 = 0.5
+    adult_sd::Float64 = 0.05
+    sessile_sd::Float64 = 0.1
+    motile_sd::Float64 = 0.1
+    temp_sd::Float64 = 0.3
 
     # Algorithm parameters
-    lambda_values::Vector{Float64} = collect(0.0:0.2:1.0) # collect(0.0:0.05:1.0)
+    lambda_values::Vector{Float64} = collect(0.0:0.2:1.0)
     sarsop_max_time::Float64 = 150.0
     VI_max_iterations::Int = 30
     QMDP_max_iterations::Int = 30
@@ -66,15 +69,3 @@ end
     solver_name::String = "Heuristic_Policy"
     heuristic_config::HeuristicConfig = HeuristicConfig()
 end
-
-# # ----------------------------
-# # POMDP config struct
-# # ----------------------------
-# @with_kw struct POMDPConfig
-#     costOfTreatment::Float64 = 10.0
-#     growthRate::Float64 = 1.26
-#     rho::Float64 = 0.7
-#     discount_factor::Float64 = 0.95
-#     log_space::Bool = false
-#     skew::Bool = false
-# end
