@@ -59,3 +59,27 @@ function get_temperature(annual_week::Int64)
     peak_week = 27      # aligns peak with July (week ~27)
     return T_mean + T_amp * cos(2π * (annual_week - peak_week) / 52)
 end
+
+# -------------------------
+# Predict the next adult sea lice level based on the current state and temperature
+# Development rate model: Return the expected development rate based on the temperature.
+# Based on A salmon lice prediction model, Stige et al. 2025.
+# https://www.sciencedirect.com/science/article/pii/S0167587724002915
+# -------------------------
+function predict_next_abundances(adult::Float64, motile::Float64, sessile::Float64, temp::Float64)
+    
+    # Weekly survival probabilities from Table 1 of Stige et al. 2025.
+    s1 = 0.49  # sessile
+    s2 = 2.3   # sessile → motile scaling
+    s3 = 0.88  # motile
+    s4 = 0.61  # adult
+
+    d1_val = 1 / (1 + exp(-(-2.4 + 0.37 * (temp - 9))))
+    d2_val = 1 / (1 + exp(-(-2.1 + 0.037 * (temp - 9))))
+
+    pred_sessile = s1 * sessile
+    pred_motile = s3 * (1 - d2_val) * motile + s2 * d1_val * sessile
+    pred_adult = s4 * adult + d2_val * 0.5 * (s3 + s4) * motile
+
+    return pred_adult, pred_motile, pred_sessile
+end

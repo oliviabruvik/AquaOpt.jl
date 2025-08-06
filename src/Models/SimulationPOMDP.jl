@@ -103,30 +103,6 @@ function d2(temperature::Float64)
 end
 
 # -------------------------
-# Predict the next adult sea lice level based on the current state and temperature
-# Development rate model: Return the expected development rate based on the temperature.
-# Based on A salmon lice prediction model, Stige et al. 2025.
-# https://www.sciencedirect.com/science/article/pii/S0167587724002915
-# -------------------------
-function predict_next_lice(adult::Float64, motile::Float64, sessile::Float64, temp::Float64)
-    
-    # Weekly survival probabilities from Table 1 of Stige et al. 2025.
-    s1 = 0.49  # sessile
-    s2 = 2.3   # sessile → motile scaling
-    s3 = 0.88  # motile
-    s4 = 0.61  # adult
-
-    d1_val = 1 / (1 + exp(-(-2.4 + 0.37 * (temp - 9))))
-    d2_val = 1 / (1 + exp(-(-2.1 + 0.037 * (temp - 9))))
-
-    pred_sessile = s1 * sessile
-    pred_motile = s3 * (1 - d2_val) * motile + s2 * d1_val * sessile
-    pred_adult = s4 * adult + d2_val * 0.5 * (s3 + s4) * motile
-
-    return pred_adult, pred_motile, pred_sessile
-end
-
-# -------------------------
 # Transition function: the current sea lice level and the predicted sea lice level the following week
 # are affected by the treatment and growth rate. The predicted sea lice level the following week will 
 # have an additional e^r term because it is a week later.
@@ -139,7 +115,7 @@ function POMDPs.transition(pomdp::SeaLiceSimMDP, s::EvaluationState, a::Action)
         next_temp = get_temperature(s.AnnualWeek)
 
         # Predict the next adult sea lice level based on the current state and temperature
-        next_adult, next_motile, next_sessile = predict_next_lice(s.Adult, s.Motile, s.Sessile, next_temp)
+        next_adult, next_motile, next_sessile = predict_next_abundances(s.Adult, s.Motile, s.Sessile, next_temp)
 
         # Apply treatment
         if a == Treatment
@@ -179,7 +155,7 @@ function POMDPs.observation(pomdp::SeaLiceSimMDP, a::Action, s::EvaluationState)
         observed_sessile = clamp(s.Sessile + rand(rng, pomdp.sessile_dist), pomdp.sea_lice_bounds...)
 
         # Predict the next adult sea lice level based on the current state and temperature
-        pred_adult, pred_motile, pred_sessile = predict_next_lice(observed_adult, observed_motile, observed_sessile, observed_temperature)
+        pred_adult, pred_motile, pred_sessile = predict_next_abundances(observed_adult, observed_motile, observed_sessile, observed_temperature)
         pred_adult = clamp(pred_adult, pomdp.sea_lice_bounds...)
 
         return EvaluationObservation(
@@ -218,7 +194,7 @@ function POMDPs.initialstate(pomdp::SeaLiceSimMDP)
         sessile = clamp(pomdp.sessile_mean + rand(rng, pomdp.sessile_dist), pomdp.initial_bounds...)
 
         # Next week's predicted adult sea lice level
-        pred_adult, pred_motile, pred_sessile = predict_next_lice(adult, motile, sessile, temperature)
+        pred_adult, pred_motile, pred_sessile = predict_next_abundances(adult, motile, sessile, temperature)
         pred_adult = clamp(pred_adult, pomdp.sea_lice_bounds...)
 
         return EvaluationState(
