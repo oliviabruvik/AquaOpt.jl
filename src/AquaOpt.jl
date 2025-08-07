@@ -45,7 +45,8 @@ end
 # ----------------------------
 function simulate_policies(algorithms, config)
     @info "Simulating policies"
-    simulate_all_policies(algorithms, config)
+    data = simulate_all_policies(algorithms, config)
+    print_histories(data, config)
     for algo in algorithms
         println("Simulating $(algo.solver_name)")
         histories = simulate_policy(algo, config)
