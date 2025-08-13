@@ -1,8 +1,12 @@
 using Distributions
 using POMDPs
+using Random
+
+# Include shared types
+include("SharedTypes.jl")
 
 # -------------------------
-# Discretized Normal Distribution
+# Utility functions for discretizing distributions
 # -------------------------
 function discretize_distribution(dist::Distribution, space::Any, skew::Bool=false)
 
@@ -53,7 +57,8 @@ end
 # -------------------------
 # Temperature model: Return estimated weekly sea surface temperature (°C) for Norwegian salmon farms.
 # -------------------------
-function get_temperature(annual_week::Int64)
+function get_temperature(annual_week)
+    return 9.0
     T_mean = 9.0      # average annual temperature (°C)
     T_amp = 4.5       # amplitude (°C)
     peak_week = 27      # aligns peak with July (week ~27)
@@ -66,7 +71,7 @@ end
 # Based on A salmon lice prediction model, Stige et al. 2025.
 # https://www.sciencedirect.com/science/article/pii/S0167587724002915
 # -------------------------
-function predict_next_abundances(adult::Float64, motile::Float64, sessile::Float64, temp::Float64)
+function predict_next_abundances(adult, motile, sessile, temp)
     
     # Weekly survival probabilities from Table 1 of Stige et al. 2025.
     s1 = 0.49  # sessile
@@ -74,12 +79,19 @@ function predict_next_abundances(adult::Float64, motile::Float64, sessile::Float
     s3 = 0.88  # motile
     s4 = 0.61  # adult
 
+    # Get the development rates
     d1_val = 1 / (1 + exp(-(-2.4 + 0.37 * (temp - 9))))
     d2_val = 1 / (1 + exp(-(-2.1 + 0.037 * (temp - 9))))
 
+    # Get the predicted sea lice levels
     pred_sessile = s1 * sessile
     pred_motile = s3 * (1 - d2_val) * motile + s2 * d1_val * sessile
     pred_adult = s4 * adult + d2_val * 0.5 * (s3 + s4) * motile
+
+    # Clamp the sea lice levels to be positive
+    pred_adult = max(pred_adult, zero(pred_adult))
+    pred_motile = max(pred_motile, zero(pred_motile))
+    pred_sessile = max(pred_sessile, zero(pred_sessile))
 
     return pred_adult, pred_motile, pred_sessile
 end
