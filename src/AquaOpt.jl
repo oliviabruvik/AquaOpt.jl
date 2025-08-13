@@ -1,3 +1,11 @@
+# -------------------------
+# Include shared types first
+# -------------------------
+include("Utils/SharedTypes.jl")
+
+# -------------------------
+# Include other files
+# -------------------------
 include("Algorithms/Evaluation.jl")
 include("Algorithms/Policies.jl")
 include("Algorithms/Simulation.jl")
@@ -102,10 +110,8 @@ function plot_results(algorithms, config)
         # Plot simulation treatment heatmap
         # plot_simulation_treatment_heatmap(algo, config; use_observations=false, n_bins=50)
 
-        if algo.solver_name == "NUS_SARSOP_Policy"
-            plot_nus_sarsop_sealice_levels_over_time(config, 0.6)
-            plot_nus_sarsop_adult_predicted_over_time(config, 0.6)
-        end
+        plot_algo_sealice_levels_over_time(config, algo.solver_name, 0.6)
+        plot_algo_adult_predicted_over_time(config, algo.solver_name, 0.6)
 
     end
     

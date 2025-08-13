@@ -64,6 +64,13 @@ function plot_beliefs_over_time(data, algo_name, config, lambda)
         Sessile = [s.Sessile for s in states],
         Temperature = [s.Temperature for s in states]
     )
+    observations = observation_hist(history)
+    observations_df = DataFrame(
+        Adult = [o.Adult for o in observations],
+        Motile = [o.Motile for o in observations],
+        Sessile = [o.Sessile for o in observations],
+        Temperature = [o.Temperature for o in observations]
+    )
     actions = action_hist(history)
     actions = [a == Treatment ? "T" : "N" for a in actions]
 
@@ -87,6 +94,7 @@ function plot_beliefs_over_time(data, algo_name, config, lambda)
             legend=:topright
         )
         scatter!(belief_plot, 1:size(states_df,1), states_df[:, i], label="True value", marker=:x, markersize=3, color=colors[i])
+        scatter!(belief_plot, 1:size(observations_df,1), observations_df[:, i], label="Observation", marker=:circle, markersize=3, color=colors[i])
 
         # Add treatment annotations
         for (t, a) in zip(1:length(actions), actions)
@@ -111,6 +119,7 @@ function plot_beliefs_over_time(data, algo_name, config, lambda)
         legend=:topright
     )
     scatter!(p_temp, 1:size(states_df,1), states_df[:, 4], label="True value", marker=:x, markersize=3, color=colors[4])
+    scatter!(p_temp, 1:size(observations_df,1), observations_df[:, 4], label="Observation", marker=:circle, markersize=3, color=colors[4])
     savefig(p_temp, joinpath(output_dir, "belief_means_Temperature_lambda_$(lambda).png"))
 
     # Arrange 3 plots side by side
