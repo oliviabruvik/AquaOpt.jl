@@ -95,3 +95,14 @@ function predict_next_abundances(adult, motile, sessile, temp)
 
     return pred_adult, pred_motile, pred_sessile
 end
+
+# -------------------------
+# Helper: logistic and NB parameterization
+# -------------------------
+logistic(x) = 1 / (1 + exp(-x))
+
+# -------------------------
+# Given NB "size" k and mean μ, Distributions.jl uses NegativeBinomial(r, p) with mean = r*(1-p)/p. 
+# Solve p = k/(k+μ), r = k.
+# -------------------------
+nb_params_from_mean_k(μ, k) = (r = k, p = k/(k + μ))
