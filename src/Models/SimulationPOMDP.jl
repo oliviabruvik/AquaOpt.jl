@@ -1,4 +1,7 @@
+# Include shared types
+include("../Utils/SharedTypes.jl")
 include("../Utils/Utils.jl")
+include("KalmanFilter.jl")
 
 using DataFrames
 import Distributions: Normal, Uniform
@@ -44,9 +47,6 @@ struct EvaluationObservation
     Salinity::Float64 # The salinity of the water (psu)
 end
 
-"Available actions: NoTreatment or Treatment."
-@enum Action NoTreatment Treatment
-
 # -------------------------
 # SimulationPOMDP Definition
 # -------------------------
@@ -72,7 +72,7 @@ end
     adult_sd::Float64 = 0.1
     motile_sd::Float64 = 0.1
     sessile_sd::Float64 = 0.1
-    temp_sd::Float64 = 0.1
+    temp_sd::Float64 = 0.0 # TODO: remember to change this back to 0.1
 
     # Distributions
     adult_dist::Distribution = Normal(0, adult_sd)
@@ -89,7 +89,7 @@ end
 # -------------------------
 # POMDPs.jl Interface
 # -------------------------
-POMDPs.actions(mdp::SeaLiceSimMDP) = [NoTreatment, Treatment]
+POMDPs.actions(mdp::SeaLiceSimMDP) = [NoTreatment, Treatment, ThermalTreatment]
 POMDPs.discount(mdp::SeaLiceSimMDP) = mdp.discount_factor
 POMDPs.isterminal(mdp::SeaLiceSimMDP, s::EvaluationState) = false
 
@@ -100,38 +100,16 @@ POMDPs.isterminal(mdp::SeaLiceSimMDP, s::EvaluationState) = false
 # -------------------------
 function POMDPs.transition(pomdp::SeaLiceSimMDP, s::EvaluationState, a::Action)
     ImplicitDistribution(pomdp, s, a) do pomdp, s, a, rng
-        
-        # Calculate temperature based on the current week
-        # TODO: consider whether to use the next week or the current week since measurements are taken approximately daily
-        next_temp = get_temperature(s.AnnualWeek)
 
-        # Predict the next adult sea lice level based on the current state and temperature
-        next_adult, next_motile, next_sessile = predict_next_abundances(s.Adult, s.Motile, s.Sessile, next_temp)
+        # Run step function to predict the next state
+        x = [s.Adult, s.Motile, s.Sessile, s.Temperature]
+        u = [a, s.AnnualWeek]
+        next_adult, next_motile, next_sessile, next_temp = step(x, u)
 
-        # Apply treatment
-        if a == Treatment
-            # Relative reduction in adult sea lice abundances
-            # https://ars.els-cdn.com/content/image/1-s2.0-S0044848623005239-mmc1.pdf Table 5
-            reduction_factor_sessile = 0.74
-            reduction_factor_motile = 0.84
-            reduction_factor_adult = 0.75
-
-            # Sample reduction factors from a normal distribution
-            sampled_reduction_factor_adult = rand(rng, Normal(reduction_factor_adult, 0.1))
-            sampled_reduction_factor_motile = rand(rng, Normal(reduction_factor_motile, 0.1))
-            sampled_reduction_factor_sessile = rand(rng, Normal(reduction_factor_sessile, 0.1))
-
-            # Apply treatment to the predicted sea lice levels
-            next_adult *= (1 - sampled_reduction_factor_adult)
-            next_motile *= (1 - sampled_reduction_factor_motile)
-            next_sessile *= (1 - sampled_reduction_factor_sessile)
-        end
-
-        # Biomass loss
-        # TODO: add a function to calculate the biomass loss
-        # https://ars.els-cdn.com/content/image/1-s2.0-S0044848623005239-mmc1.pdf
-        lambda_mech = 1.210
-
+        # # Biomass loss
+        # # TODO: add a function to calculate the biomass loss
+        # # https://ars.els-cdn.com/content/image/1-s2.0-S0044848623005239-mmc1.pdf
+        # lambda_mech = 1.210
 
         # Add noise
         next_adult = next_adult + rand(rng, pomdp.adult_dist)
@@ -173,8 +151,15 @@ function POMDPs.observation(pomdp::SeaLiceSimMDP, a::Action, s::EvaluationState)
         observed_sessile = s.Sessile + rand(rng, pomdp.sessile_dist)
         observed_temperature = s.Temperature + rand(rng, pomdp.temp_dist)
 
+        # Clamp the sea lice levels to be positive
+        observed_adult = max(observed_adult, 0.0)
+        observed_motile = max(observed_motile, 0.0)
+        observed_sessile = max(observed_sessile, 0.0)
+
         # Predict the next adult sea lice level based on the current state and temperature
-        pred_adult, pred_motile, pred_sessile = predict_next_abundances(observed_adult, observed_motile, observed_sessile, observed_temperature)
+        pred_adult, _, _ = predict_next_abundances(observed_adult, observed_motile, observed_sessile, observed_temperature)
+
+        # Clamp the sea lice levels to be positive and within the bounds of the SeaLicePOMDP
         pred_adult = clamp(pred_adult, pomdp.sea_lice_bounds...)
 
         return EvaluationObservation(
@@ -209,7 +194,7 @@ function POMDPs.reward(pomdp::SeaLiceSimMDP, s::EvaluationState, a::Action, sp::
     lice_penalty = alpha_1 * s.SeaLiceLevel
     regulatory_penalty = alpha_2 * (s.Adult > 0.5)
     lost_biomass_penalty = alpha_3 * (s.NumberOfFish - sp.NumberOfFish)
-    treatment_penalty = alpha_4 * get_cost(pomdp, a)
+    treatment_penalty = alpha_4 * get_treatment_cost(a)
 
     return - (lice_penalty + treatment_penalty + lost_biomass_penalty + regulatory_penalty)
 end
@@ -229,7 +214,7 @@ function POMDPs.initialstate(pomdp::SeaLiceSimMDP)
         sessile = pomdp.sessile_mean + rand(rng, pomdp.sessile_dist)
 
         # Next week's predicted adult sea lice level
-        pred_adult, pred_motile, pred_sessile = predict_next_abundances(adult, motile, sessile, temperature)
+        pred_adult, _, _ = predict_next_abundances(adult, motile, sessile, temperature)
 
         # Clamp the sea lice levels to be positive
         adult = max(adult, 0.0)
@@ -248,17 +233,6 @@ function POMDPs.initialstate(pomdp::SeaLiceSimMDP)
             200000, # NumberOfFish at the start of production
             30.0, # Salinity at the start of production
         )
-    end
-end
-
-# -------------------------
-# Cost function
-# -------------------------
-function get_cost(pomdp::SeaLiceSimMDP, a::Action)
-    if a == Treatment
-        return pomdp.costOfTreatment
-    else
-        return 0.0
     end
 end
 

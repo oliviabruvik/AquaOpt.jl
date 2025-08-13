@@ -1,4 +1,4 @@
-include("SimulationPOMDP.jl")
+include("../Utils/SharedTypes.jl")
 include("../Utils/Utils.jl")
 
 using POMDPs
@@ -6,6 +6,9 @@ using GaussianFilters
 using Distributions
 using LinearAlgebra
 using Random
+
+# TODO: uncertainty in kalman filter a bit bigger than in the simulation
+# TODO: simLog
 
 # --------------------------------------------
 # Updater wrapper struct
@@ -17,51 +20,24 @@ end
 # x is state, u is action
 function step(x, u)
 
-    # Copy the state
-    xp = copy(x)
-
-    # Unpack the action
-    treatment = u[1]
-    annual_week = u[2]
-
-    # Unpack the state
-    adult = x[1]
-    motile = x[2]
-    sessile = x[3]
-
-    # Get the temperature
-    temp = get_temperature(Int64(annual_week))
-
-    # Weekly survival probabilities from Table 1 of Stige et al. 2025.
-    s1 = 0.49  # sessile
-    s2 = 2.3   # sessile → motile scaling
-    s3 = 0.88  # motile
-    s4 = 0.61  # adult
-
-    d1_val = 1 / (1 + exp(-(-2.4 + 0.37 * (temp - 9))))
-    d2_val = 1 / (1 + exp(-(-2.1 + 0.037 * (temp - 9))))
-
-    next_sessile = s1 * sessile
-    next_motile = s3 * (1 - d2_val) * motile + s2 * d1_val * sessile
-    next_adult = s4 * adult + d2_val * 0.5 * (s3 + s4) * motile
-
-    # Clamp the sea lice levels to be positive
-    next_adult = max(next_adult, 0.0)
-    next_motile = max(next_motile, 0.0)
-    next_sessile = max(next_sessile, 0.0)
+    # Unpack the state and action
+    adult, motile, sessile, temp = x
+    treatment, annual_week = u
 
     # Apply treatment
-    if treatment == 1.0
-        next_adult *= (1 - 0.95)
-    end
+    config = get_action_config(Action(Int(treatment)))
+    adult *= (1 - config.adult_reduction)
+    motile *= (1 - config.motile_reduction)
+    sessile *= (1 - config.sessile_reduction)
 
-    # Update the state
-    xp[1] = next_adult
-    xp[2] = next_motile
-    xp[3] = next_sessile
-    xp[4] = temp
+    # Predict the next abundances
+    next_adult, next_motile, next_sessile = predict_next_abundances(adult, motile, sessile, temp)
 
-    return xp
+    # Get the temperature for the next week
+    next_annual_week = (annual_week + 1) % 52
+    next_temp = get_temperature(next_annual_week)
+
+    return [next_adult, next_motile, next_sessile, next_temp]
 end
 
 # --------------------------------------------
@@ -72,13 +48,13 @@ observe(x, u) = x  # noise handled by V
 # --------------------------------------------
 # Build EKF or UKF filter
 # --------------------------------------------
-function build_kf(pomdp::SeaLiceSimMDP; ekf_filter=ekf_filter)
+function build_kf(sim_pomdp::Any; ekf_filter=false)
     
     # Create noise matrices with the diagonal elements being adult, sessile, motile, temperature
     # The W matrix stores the process noise for each state variable
     # The V matrix stores the observation noise for each state variable
-    W = Diagonal([pomdp.adult_sd^2, pomdp.motile_sd^2, pomdp.sessile_sd^2, pomdp.temp_sd^2])
-    V = Diagonal([pomdp.adult_sd^2, pomdp.motile_sd^2, pomdp.sessile_sd^2, pomdp.temp_sd^2])
+    W = Diagonal([sim_pomdp.adult_sd^2, sim_pomdp.motile_sd^2, sim_pomdp.sessile_sd^2, sim_pomdp.temp_sd^2])
+    V = Diagonal([sim_pomdp.adult_sd^2, sim_pomdp.motile_sd^2, sim_pomdp.sessile_sd^2, sim_pomdp.temp_sd^2])
 
     # Create dynamics and observation models
     dmodel = NonlinearDynamicsModel(step, W)
@@ -96,6 +72,8 @@ end
 # Belief initialization
 # --------------------------------------------
 function POMDPs.initialize_belief(updater::KalmanUpdater, dists::NTuple{4, Distribution})
+    
+    # TODO: add full state distribution with 0 noise
     μ0 = mean.([dists[1], dists[2], dists[3], dists[4]])
     σ2s = std.([dists[1], dists[2], dists[3], dists[4]]).^2
     Σ0 = Diagonal(σ2s)
@@ -106,12 +84,15 @@ end
 # --------------------------------------------
 # Kalman update
 # --------------------------------------------
-function POMDPs.update(updater::KalmanUpdater, b0::GaussianBelief, a::Action, o::Union{SeaLiceObservation, EvaluationObservation})
-    
-    @assert (a == NoTreatment || a == Treatment)
+function POMDPs.update(updater::KalmanUpdater, b0::GaussianBelief, a::Action, o::Any)
+
     # We're passing in the annual week to the action because the dynamics model depends on it for the temperature model
-    action = [a == Treatment ? 1.0 : 0.0, o.AnnualWeek]
+    action = [Int(a), o.AnnualWeek]
     observation = [o.Adult, o.Motile, o.Sessile, o.Temperature]
+
+    println("belief means: $(b0.μ[1]), $(b0.μ[2]), $(b0.μ[3]), $(b0.μ[4])")
+    println("belief variances: $(b0.Σ[1,1]), $(b0.Σ[2,2]), $(b0.Σ[3,3]), $(b0.Σ[4,4])")
+    println("\n")
     
     b = GaussianFilters.update(updater.filter, b0, action, observation)
 
