@@ -12,7 +12,10 @@ using POMDPLinter
 using Distributions
 using Parameters
 using Discretizers
+using Random
 
+# Include shared types first
+include("../Utils/SharedTypes.jl")
 include("../Utils/Utils.jl")
 
 # -------------------------
@@ -28,8 +31,7 @@ struct SeaLiceObservation
 	SeaLiceLevel::Float64
 end
 
-"Available actions: NoTreatment or Treatment."
-@enum Action NoTreatment Treatment
+# Action enum is imported from SharedTypes.jl
 
 # -------------------------
 # SeaLiceMDP Definition
@@ -53,13 +55,14 @@ end
     adult_sd::Float64 = 0.1
     lindisc::LinearDiscretizer = LinearDiscretizer(collect(min_lice_level:discretization_step:(max_lice_level+discretization_step)))
     catdisc::CategoricalDiscretizer = CategoricalDiscretizer([NoTreatment, Treatment])
+    rng::AbstractRNG = Random.GLOBAL_RNG
 end
 
 # -------------------------
 # POMDPs.jl Interface
 # -------------------------
 POMDPs.states(mdp::SeaLiceMDP) = [SeaLiceState(round(i, digits=1)) for i in mdp.sea_lice_range]
-POMDPs.actions(mdp::SeaLiceMDP) = [NoTreatment, Treatment]
+POMDPs.actions(mdp::SeaLiceMDP) = [NoTreatment, Treatment, ThermalTreatment]
 POMDPs.observations(mdp::SeaLiceMDP) = [SeaLiceObservation(round(i, digits=1)) for i in mdp.sea_lice_range]
 POMDPs.discount(mdp::SeaLiceMDP) = mdp.discount_factor
 POMDPs.isterminal(mdp::SeaLiceMDP, s::SeaLiceState) = false
@@ -85,23 +88,15 @@ end
 # -------------------------
 function POMDPs.transition(mdp::SeaLiceMDP, s::SeaLiceState, a::Action)
 
+    # Apply treatment
+    rf_a, rf_m, rf_s = get_treatment_effectiveness(a)
+    adult = s.SeaLiceLevel * (1 - rf_a)
+
     # Calculate the mean of the transition distribution
-    μ = (1 - (a == Treatment ? mdp.rho : 0.0)) * exp(mdp.growthRate) * s.SeaLiceLevel
+    μ = exp(mdp.growthRate) * adult
 
     # Clamp the mean to the range of the sea lice range
-    # TODO: consider the correctness of this
     μ = clamp(μ, mdp.min_lice_level, mdp.max_lice_level)
-
-    # Safety check for invalid parameters
-    if isnan(μ) || isinf(μ)
-        @warn("Invalid mean detected: μ=$μ, state=$s, action=$a")
-        # Fallback to current state
-        states = POMDPs.states(mdp)
-        probs = zeros(length(states))
-        state_idx = argmin(abs.([s.SeaLiceLevel for s in states] .- s.SeaLiceLevel))
-        probs[state_idx] = 1.0
-        return SparseCat(states, probs)
-    end
 
     # Get the distribution
     dist = truncated(Normal(μ, mdp.adult_sd), mdp.min_lice_level, mdp.max_lice_level)
@@ -131,13 +126,8 @@ function POMDPs.observation(mdp::SeaLiceMDP, a::Action, s::SeaLiceState)
 end
 
 function POMDPs.reward(mdp::SeaLiceMDP, s::SeaLiceState, a::Action)
-    # if s.SeaLiceLevel > 0.5
-    #    lice_penalty = 1000.0
-    # else
-    #    lice_penalty = mdp.lambda * s.SeaLiceLevel
-    # end
     lice_penalty = mdp.lambda * s.SeaLiceLevel
-    treatment_penalty = a == Treatment ? (1 - mdp.lambda) * mdp.costOfTreatment : 0.0
+    treatment_penalty = (1 - mdp.lambda) * get_treatment_cost(a)
     return - (lice_penalty + treatment_penalty)
 end
 
@@ -145,13 +135,3 @@ function POMDPs.initialstate(mdp::SeaLiceMDP)
     states = [SeaLiceState(round(i, digits=1)) for i in mdp.initial_range]
     return SparseCat(states, fill(1/length(states), length(states)))
 end
-
-# function POMDPs.action(policy::Policy, s::SeaLiceState)
-
-# end
-
-# function POMDPs.action(mdp::SeaLiceMDP, b::Vector{Float64})
-
-# end
-
-    

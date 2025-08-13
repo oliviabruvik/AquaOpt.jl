@@ -12,6 +12,7 @@ using POMDPLinter
 using Distributions
 using Parameters
 using Discretizers
+using Random
 
 # -------------------------
 # State, Observation, Action
@@ -26,8 +27,8 @@ struct SeaLiceLogObservation
 	SeaLiceLevel::Float64
 end
 
-"Available actions: NoTreatment or Treatment."
-@enum Action NoTreatment Treatment
+"Available actions: NoTreatment, Treatment, or ThermalTreatment."
+@enum Action NoTreatment Treatment ThermalTreatment
 
 # -------------------------
 # SeaLiceLogMDP Definition
@@ -46,7 +47,7 @@ end
     max_log_initial_level::Float64 = log(0.25)
     sea_lice_initial_mean::Float64 = log(0.125)
     sampling_sd::Float64 = abs(log(0.25))
-    catdisc::CategoricalDiscretizer = CategoricalDiscretizer([NoTreatment, Treatment])
+    catdisc::CategoricalDiscretizer = CategoricalDiscretizer([NoTreatment, Treatment, ThermalTreatment])
 
     # Log space
     min_log_lice_level::Float64 = log(min_lice_level)
@@ -54,13 +55,16 @@ end
     log_discretization_step::Float64 = 0.1 # 0.005  # Reduced from 0.01 for finer granularity
     initial_range::Vector{Float64} = collect(range(min_log_initial_level, stop=max_log_initial_level, step=log_discretization_step))
     log_sea_lice_range::Vector{Float64} = collect(range(min_log_lice_level, stop=max_log_lice_level, step=log_discretization_step))
+
+    # Sampling parameters
+    rng::AbstractRNG = Random.GLOBAL_RNG
 end
 
 # -------------------------
 # POMDPs.jl Interface
 # -------------------------
 POMDPs.states(mdp::SeaLiceLogMDP) = [SeaLiceLogState(i) for i in mdp.log_sea_lice_range]
-POMDPs.actions(mdp::SeaLiceLogMDP) = [NoTreatment, Treatment]
+POMDPs.actions(mdp::SeaLiceLogMDP) = [NoTreatment, Treatment, ThermalTreatment]
 POMDPs.observations(mdp::SeaLiceLogMDP) = [SeaLiceLogObservation(i) for i in mdp.log_sea_lice_range]
 POMDPs.discount(mdp::SeaLiceLogMDP) = mdp.discount_factor
 POMDPs.isterminal(mdp::SeaLiceLogMDP, s::SeaLiceLogState) = false
@@ -96,13 +100,14 @@ end
 # -------------------------
 function POMDPs.transition(mdp::SeaLiceLogMDP, s::SeaLiceLogState, a::Action)
 
-    # @info "Transition"
+    # Apply treatment
+    rf_a, rf_m, rf_s = get_treatment_effectiveness(a)
+    adult = s.SeaLiceLevel + log(1 - rf_a)
 
     # Calculate the mean of the transition distribution
-    μ = log(1 - (a == Treatment ? mdp.rho : 0.0)) + mdp.growthRate + s.SeaLiceLevel
+    μ = mdp.growthRate + adult
 
     # Clamp the mean to the range of the sea lice range
-    # TODO: consider the correctness of this
     μ = clamp(μ, mdp.min_log_lice_level, mdp.max_log_lice_level)
 
     # Get the distribution
@@ -135,14 +140,8 @@ end
 
 function POMDPs.reward(mdp::SeaLiceLogMDP, s::SeaLiceLogState, a::Action)
     # Convert log lice level back to actual lice level for penalty calculation
-    lice_level = exp(s.SeaLiceLevel)
-    # if lice_level > 0.5
-    #     lice_penalty = 1000.0
-    # else
-    #     lice_penalty = mdp.lambda * lice_level
-    # end 
-    lice_penalty = mdp.lambda * lice_level
-    treatment_penalty = a == Treatment ? (1 - mdp.lambda) * mdp.costOfTreatment : 0.0
+    lice_penalty = mdp.lambda * exp(s.SeaLiceLevel)
+    treatment_penalty = (1 - mdp.lambda) * get_treatment_cost(a)
     return -(lice_penalty + treatment_penalty)
 end
 
