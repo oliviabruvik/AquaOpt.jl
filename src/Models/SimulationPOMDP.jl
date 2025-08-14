@@ -52,12 +52,27 @@ end
 # -------------------------
 "Sea lice MDP with growth dynamics and treatment effects."
 @with_kw struct SeaLiceSimMDP <: POMDP{EvaluationState, Action, EvaluationObservation}
+
+    # Parameters
 	lambda::Float64 = 0.5
 	costOfTreatment::Float64 = 10.0
 	growthRate::Float64 = 0.3
 	rho::Float64 = 0.95
     discount_factor::Float64 = 0.95
     skew::Bool = false
+
+    # Parameters from Aldrin et al. 2023
+    n_sample::Int = 20                         # number of fish counted (ntc)
+    ρ_adult::Float64 = 0.175                   # aggregation parameter for adults
+    ρ_motile::Float64 = 0.187                   # aggregation parameter for motile
+    ρ_sessile::Float64 = 0.037                  # aggregation parameter for sessile
+
+    # Under-reporting parameters from Aldrin et al. 2023
+    use_underreport::Bool = false      # toggle logistic under-count correction
+    beta0_Scount_f::Float64 = -1.535           # farm-specific intercept (can vary by farm)
+    beta1_Scount::Float64 = 0.039              # common weight slope
+    mean_fish_weight_kg::Float64 = 1.5         # mean fish weight (kg)
+    W0::Float64 = 0.1 # kg
 
     # Sea lice bounds
     sea_lice_bounds::Tuple{Float64, Float64} = (0.0, 30.0)
@@ -138,57 +153,49 @@ function POMDPs.transition(pomdp::SeaLiceSimMDP, s::EvaluationState, a::Action)
 end
 
 # -------------------------
-# Observation function: the current sea lice level is measured with noise
-# and the predicted sea lice level the following week is calculated based on
-# the current sea lice level this week
+# Observation function: the current counts of adults, motiles, and sessiles are measured
+# with a negative binomial distribution. The predicted adult level the following week is
+# calculated based on the observed adult count this week and the temperature.
 # -------------------------
 function POMDPs.observation(pomdp::SeaLiceSimMDP, a::Action, s::EvaluationState)
     ImplicitDistribution(pomdp, s, a) do pomdp, s, a, rng
 
-        # Sampling / data model params (inspired by Aldrin et al. 2023)
-        n_sample::Int = 20                         # number of fish counted (ntc)
-        ρ_adult::Float64 = 0.175
-        ρ_motile::Float64 = 0.187
-        ρ_sessile::Float64 = 0.037                     # aggregation (≈ paper's ρ^S posterior mean)
-
-        use_sessile_underreport::Bool = false       # toggle the p^Scount correction
-        beta0_Scount_f::Float64 = -1.535           # farm-specific intercept (can vary by farm)
-        beta1_Scount::Float64 = 0.039              # common weight slope
-        mean_fish_weight_kg::Float64 = 1.5         # W_tc (kg)
-        W0 = 0.1 # kg
-        n = 5 # Number of fish sampled
-
         # (Optional) under-counting correction like p^Scount_ftc
-        # paper uses (W - 0.1) with W in kg; keep that convention
-        p_scount = if use_sessile_underreport
-            η = beta0_Scount_f + beta1_Scount * (mean_fish_weight_kg - W0)
+        # paper uses (W - 0.1) with W in kg
+        # Accounts for the fact that sessiles are harder to count than motiles and adults
+        p_scount = if pomdp.use_underreport
+            η = pomdp.beta0_Scount_f + pomdp.beta1_Scount * (pomdp.mean_fish_weight_kg - pomdp.W0)
             logistic(η)  # ∈ (0,1)
         else
             1.0
         end
 
         # Expected total lice counted across n_sample fish
-        μ_adult = max(1e-12, n_sample * p_scount * s.Adult)
-        μ_motile = max(1e-12, n_sample * p_scount * s.Motile)
-        μ_sessile = max(1e-12, n_sample * p_scount * s.Sessile)
+        μ_total_adult = max(1e-12, pomdp.n_sample * p_scount * s.Adult)
+        μ_total_motile = max(1e-12, pomdp.n_sample * p_scount * s.Motile)
+        μ_total_sessile = max(1e-12, pomdp.n_sample * p_scount * s.Sessile)
 
+        # Dispersion parameters for the NB distributions
         # Aggregation (NB size) scales with sample size (n * ρ)
-        k_adult = max(1e-9, n_sample * ρ_adult)
-        k_motile = max(1e-9, n_sample * ρ_motile)
-        k_sessile = max(1e-9, n_sample * ρ_sessile)
-        r_adult, p_adult = nb_params_from_mean_k(μ_adult, k_adult)
-        r_motile, p_motile = nb_params_from_mean_k(μ_motile, k_motile)
-        r_sessile, p_sessile = nb_params_from_mean_k(μ_sessile, k_sessile)
+        k_adult = max(1e-9, pomdp.n_sample * pomdp.ρ_adult)
+        k_motile = max(1e-9, pomdp.n_sample * pomdp.ρ_motile)
+        k_sessile = max(1e-9, pomdp.n_sample * pomdp.ρ_sessile)
 
-        # Calculate the total sea lice counts
+        # Converts the biological parameters (mean μ, dispersion k) to the mathematical
+        # parameters (r, p) that Julia's NB distribution expects
+        r_adult, p_adult = nb_params_from_mean_k(μ_total_adult, k_adult)
+        r_motile, p_motile = nb_params_from_mean_k(μ_total_motile, k_motile)
+        r_sessile, p_sessile = nb_params_from_mean_k(μ_total_sessile, k_sessile)
+
+        # Sample the total counts randomly from the NB distributions
         total_adult = rand(rng, NegativeBinomial(r_adult, p_adult))
         total_motile = rand(rng, NegativeBinomial(r_motile, p_motile))
         total_sessile = rand(rng, NegativeBinomial(r_sessile, p_sessile))
 
         # Calculate the observed sea lice levels
-        observed_adult = total_adult / n_sample
-        observed_motile = total_motile / n_sample
-        observed_sessile = total_sessile / n_sample
+        observed_adult = total_adult / pomdp.n_sample
+        observed_motile = total_motile / pomdp.n_sample
+        observed_sessile = total_sessile / pomdp.n_sample
 
         # Calculate the observed temperature
         observed_temperature = rand(rng, Normal(s.Temperature, pomdp.temp_sd))

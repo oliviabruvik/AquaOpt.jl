@@ -89,11 +89,6 @@ function POMDPs.update(updater::KalmanUpdater, b0::GaussianBelief, a::Action, o:
     # We're passing in the annual week to the action because the dynamics model depends on it for the temperature model
     action = [Int(a), o.AnnualWeek]
     observation = [o.Adult, o.Motile, o.Sessile, o.Temperature]
-
-    println("belief means: $(b0.μ[1]), $(b0.μ[2]), $(b0.μ[3]), $(b0.μ[4])")
-    println("belief variances: $(b0.Σ[1,1]), $(b0.Σ[2,2]), $(b0.Σ[3,3]), $(b0.Σ[4,4])")
-    println("\n")
-    
     b = GaussianFilters.update(updater.filter, b0, action, observation)
 
     return b

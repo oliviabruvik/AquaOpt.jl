@@ -28,7 +28,7 @@ function create_pomdp_mdp(λ, config)
             growthRate=config.growthRate,
             rho=config.rho,
             discount_factor=config.discount_factor,
-            sampling_sd=abs(log(config.raw_space_sampling_sd)),
+            adult_sd=abs(log(config.raw_space_sampling_sd)),
             skew=config.skew
         )
     else

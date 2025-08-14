@@ -35,29 +35,38 @@ end
 # -------------------------
 "Sea lice MDP with growth dynamics and treatment effects in log space."
 @with_kw struct SeaLiceLogMDP <: POMDP{SeaLiceLogState, Action, SeaLiceLogObservation}
+
+    # Parameters
 	lambda::Float64 = 0.5
 	costOfTreatment::Float64 = 10.0
 	growthRate::Float64 = 1.2
 	rho::Float64 = 0.7
     discount_factor::Float64 = 0.95
     skew::Bool = false
-    min_lice_level::Float64 = 1e-3 # 1e-3 is the minimum sea lice level
-    max_lice_level::Float64 = 30 # 10.0 # 10.0 is the maximum sea lice level
-    min_log_initial_level::Float64 = log(1e-3)
-    max_log_initial_level::Float64 = log(0.25)
-    sea_lice_initial_mean::Float64 = log(0.125)
-    sampling_sd::Float64 = abs(log(0.25))
-    catdisc::CategoricalDiscretizer = CategoricalDiscretizer([NoTreatment, Treatment, ThermalTreatment])
 
-    # Log space
-    min_log_lice_level::Float64 = log(min_lice_level)
-    max_log_lice_level::Float64 = log(max_lice_level)
-    log_discretization_step::Float64 = 0.1 # 0.005  # Reduced from 0.01 for finer granularity
-    initial_range::Vector{Float64} = collect(range(min_log_initial_level, stop=max_log_initial_level, step=log_discretization_step))
-    log_sea_lice_range::Vector{Float64} = collect(range(min_log_lice_level, stop=max_log_lice_level, step=log_discretization_step))
+    # Parameters from Aldrin et al. 2023
+    n_sample::Int = 20                 # number of fish counted (ntc)
+    ρ_adult::Float64 = 0.175            # aggregation/over-dispersion "ρ" (adult default)
+    use_underreport::Bool = false      # toggle logistic under-count correction
+    beta0_Scount_f::Float64 = -1.535   # farm intercept for under-count (if used)
+    beta1_Scount::Float64 = 0.039      # weight slope for under-count (if used)
+    mean_fish_weight_kg::Float64 = 1.5 # mean fish weight
+    W0::Float64 = 0.1                  # weight centering (kg)
+
+    # Count bounds
+    sea_lice_bounds::Tuple{Float64, Float64} = (log(1e-3), log(30.0))
+    initial_bounds::Tuple{Float64, Float64} = (log(1e-3), log(0.25))
+    initial_mean::Float64 = log(0.125)
 
     # Sampling parameters
+    adult_sd::Float64 = abs(log(0.1))
     rng::AbstractRNG = Random.GLOBAL_RNG
+    
+    # Log space discretization
+    log_discretization_step::Float64 = 0.1
+    initial_range::Vector{Float64} = collect(range(initial_bounds[1], stop=initial_bounds[2], step=log_discretization_step))
+    log_sea_lice_range::Vector{Float64} = collect(range(sea_lice_bounds[1], stop=sea_lice_bounds[2], step=log_discretization_step))
+    catdisc::CategoricalDiscretizer = CategoricalDiscretizer([NoTreatment, Treatment, ThermalTreatment])
 end
 
 # -------------------------
@@ -87,13 +96,13 @@ end
 # Conversion Utilities
 # -------------------------
 # Required by LocalApproximationValueIteration
-function POMDPs.convert_s(::Type{Vector{Float64}}, s::SeaLiceLogState, mdp::SeaLiceLogMDP)
-    return [s.SeaLiceLevel]
-end
+# function POMDPs.convert_s(::Type{Vector{Float64}}, s::SeaLiceLogState, mdp::SeaLiceLogMDP)
+#     return [s.SeaLiceLevel]
+# end
 
-function POMDPs.convert_s(::Type{SeaLiceLogState}, v::Vector{Float64}, mdp::SeaLiceLogMDP)
-    return SeaLiceLogState(v[1])
-end
+# function POMDPs.convert_s(::Type{SeaLiceLogState}, v::Vector{Float64}, mdp::SeaLiceLogMDP)
+#     return SeaLiceLogState(v[1])
+# end
 
 # -------------------------
 # Transition, Observation, Reward, Initial State
@@ -108,10 +117,10 @@ function POMDPs.transition(mdp::SeaLiceLogMDP, s::SeaLiceLogState, a::Action)
     μ = mdp.growthRate + adult
 
     # Clamp the mean to the range of the sea lice range
-    μ = clamp(μ, mdp.min_log_lice_level, mdp.max_log_lice_level)
+    μ = clamp(μ, mdp.sea_lice_bounds...)
 
     # Get the distribution
-    dist = truncated(Normal(μ, mdp.sampling_sd), mdp.min_log_lice_level, mdp.max_log_lice_level)
+    dist = truncated(Normal(μ, mdp.adult_sd), mdp.sea_lice_bounds...)
 
     # Get the states
     states = POMDPs.states(mdp)
@@ -122,17 +131,74 @@ function POMDPs.transition(mdp::SeaLiceLogMDP, s::SeaLiceLogState, a::Action)
     return SparseCat(states, probs)
 end
 
-
+# -------------------------
+# Observation function: the current count of adults is measured with a negative binomial
+# distribution.
+# -------------------------
 function POMDPs.observation(mdp::SeaLiceLogMDP, a::Action, s::SeaLiceLogState)
 
-    # Get the distribution
-    dist = truncated(Normal(s.SeaLiceLevel, mdp.sampling_sd), mdp.min_log_lice_level, mdp.max_log_lice_level)
-
-    # Get the observations
+    # Observation grid
     observations = POMDPs.observations(mdp)
 
-    # Calculate the probs using the cdf
-    probs = discretize_distribution(dist, observations, mdp.skew)
+    # (Optional) under-counting correction like p^Scount_ftc
+    # paper uses (W - 0.1) with W in kg
+    p_scount = if mdp.use_underreport
+        η = mdp.beta0_Scount_f + mdp.beta1_Scount*(mdp.mean_fish_weight_kg - mdp.W0)
+        logistic(η)
+    else
+        1.0
+    end
+
+    # NB parameters on TOTAL counts over n_sample fish
+    # mean of total counts = n_sample * p_scount * (true lice per fish)
+    raw_adult = exp(s.SeaLiceLevel)
+    μ_total_adult = max(1e-12, mdp.n_sample * p_scount * raw_adult)
+    k = max(1e-9, mdp.n_sample * mdp.ρ_adult)  # NB "size" scales with n_sample
+    r, p = nb_params_from_mean_k(μ_total_adult, k)
+    nb = NegativeBinomial(r, p)
+
+    # Build CDF at each grid value (threshold on total counts)
+    cdfs = similar(observations, Float64)
+    @inbounds for (i, o) in enumerate(observations)
+        adult_threshold = clamp(o.SeaLiceLevel, mdp.sea_lice_bounds...)
+        raw_adult_threshold = exp(adult_threshold)
+        total_adult_threshold = max(0, floor(Int, mdp.n_sample * raw_adult_threshold))
+        ci = cdf(nb, total_adult_threshold)
+        if !isfinite(ci)
+            @warn "NaN in observation distribution (SeaLiceLogPOMDP)"
+            ci = 0.0
+        end
+        cdfs[i] = ci
+    end
+
+    # Ensure the last bin captures any tail mass beyond max grid value
+    cdfs[end] = 1.0
+
+    # Convert CDFs to bin probabilities
+    probs = similar(cdfs)
+    past = 0.0
+    @inbounds for i in eachindex(cdfs)
+        ci = cdfs[i]
+        # guard against NaNs or non-monotonic numeric issues
+        if !isfinite(ci) || ci < past
+            @warn "NaN or non-monotonic in observation distribution (SeaLiceLogPOMDP)"
+            ci = past
+        end
+        probs[i] = max(ci - past, 0.0)
+        past = ci
+    end
+
+    # Normalize (and fallback if degenerate)
+    if sum(probs) <= 0 || !isfinite(sum(probs))
+        # Put all mass on the nearest bin to the mean of the NB distribution
+        @warn "Degenerate observation distribution (SeaLiceLogPOMDP)"
+        μ_adult = log(max(μ_total_adult / mdp.n_sample, 1e-12))
+        idx = findmin(abs.([o.SeaLiceLevel - μ_adult for o in observations]))[2]
+        probs .= 0.0
+        probs[idx] = 1.0
+    else
+        probs = normalize(probs, 1)
+    end
 
     return SparseCat(observations, probs)
 

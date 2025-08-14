@@ -32,6 +32,19 @@ using Parameters
     sessile_sd::Float64 = 0.1
     temp_sd::Float64 = 0.3
 
+    # Observation parameters from Aldrin et al. 2023
+    n_sample::Int = 20                      # number of fish counted (ntc)
+    ρ_adult::Float64 = 0.175                # aggregation parameter for adults
+    ρ_motile::Float64 = 0.187               # aggregation parameter for motile
+    ρ_sessile::Float64 = 0.037              # aggregation parameter for sessile
+
+    # Under-reporting parameters from Aldrin et al. 2023
+    use_underreport::Bool = false           # toggle logistic under-count correction
+    beta0_Scount_f::Float64 = -1.535        # farm-specific intercept (can vary by farm)
+    beta1_Scount::Float64 = 0.039           # common weight slope
+    mean_fish_weight_kg::Float64 = 1.5      # mean fish weight (kg)
+    W0::Float64 = 0.1                       # weight centering (kg)
+
     # Algorithm parameters
     lambda_values::Vector{Float64} = collect(0.0:0.2:1.0)
     sarsop_max_time::Float64 = 150.0
