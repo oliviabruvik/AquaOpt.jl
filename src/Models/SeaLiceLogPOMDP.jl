@@ -38,11 +38,15 @@ end
 
     # Parameters
 	lambda::Float64 = 0.5
+    reward_lambdas::Vector{Float64} = [0.05, 0.8, 0.1, 0.05] # [treatment, regulatory, biomass, health]
 	costOfTreatment::Float64 = 10.0
 	growthRate::Float64 = 1.2
 	rho::Float64 = 0.7
     discount_factor::Float64 = 0.95
     skew::Bool = false
+
+    # Regulation parameters
+    regulation_limit::Float64 = 0.5
 
     # Parameters from Aldrin et al. 2023
     n_sample::Int = 20                 # number of fish counted (ntc)
@@ -56,7 +60,7 @@ end
     # Count bounds
     sea_lice_bounds::Tuple{Float64, Float64} = (log(1e-3), log(30.0))
     initial_bounds::Tuple{Float64, Float64} = (log(1e-3), log(0.25))
-    initial_mean::Float64 = log(0.125)
+    initial_mean::Float64 = log(0.13)
 
     # Sampling parameters
     adult_sd::Float64 = abs(log(0.1))
@@ -91,18 +95,6 @@ function POMDPs.obsindex(mdp::SeaLiceLogMDP, o::SeaLiceLogObservation)
     closest_idx = argmin(abs.(mdp.log_sea_lice_range .- o.SeaLiceLevel))
     return closest_idx
 end
-
-# -------------------------
-# Conversion Utilities
-# -------------------------
-# Required by LocalApproximationValueIteration
-# function POMDPs.convert_s(::Type{Vector{Float64}}, s::SeaLiceLogState, mdp::SeaLiceLogMDP)
-#     return [s.SeaLiceLevel]
-# end
-
-# function POMDPs.convert_s(::Type{SeaLiceLogState}, v::Vector{Float64}, mdp::SeaLiceLogMDP)
-#     return SeaLiceLogState(v[1])
-# end
 
 # -------------------------
 # Transition, Observation, Reward, Initial State
@@ -204,14 +196,41 @@ function POMDPs.observation(mdp::SeaLiceLogMDP, a::Action, s::SeaLiceLogState)
 
 end
 
-function POMDPs.reward(mdp::SeaLiceLogMDP, s::SeaLiceLogState, a::Action)
-    # Convert log lice level back to actual lice level for penalty calculation
-    lice_penalty = mdp.lambda * exp(s.SeaLiceLevel)
-    treatment_penalty = (1 - mdp.lambda) * get_treatment_cost(a)
-    return -(lice_penalty + treatment_penalty)
+# -------------------------
+# Reward
+# -------------------------
+function POMDPs.reward(mdp::SeaLiceLogMDP, s::SeaLiceLogState, a::Action, sp::SeaLiceLogState)
+
+    λ_trt, λ_reg, λ_bio,λ_health = mdp.reward_lambdas
+
+    # Treatment cost
+    treatment_cost = λ_trt * get_treatment_cost(a)
+
+    # Regulatory penalty
+    regulatory_penalty = λ_reg * (exp(s.SeaLiceLevel) > mdp.regulation_limit)
+
+    # Lost biomass
+    lost_biomass = 0
+
+    # Fish disease
+    fish_disease = λ_health * (s.SeaLiceLevel + get_fish_disease(a))
+
+    return - (fish_disease + treatment_cost + lost_biomass + regulatory_penalty)
 end
 
+# -------------------------
+# Initial state
+# -------------------------
 function POMDPs.initialstate(mdp::SeaLiceLogMDP)
-    states = [SeaLiceLogState(i) for i in mdp.initial_range]
-    return SparseCat(states, fill(1/length(states), length(states)))
+
+    # Get the distribution
+    dist = truncated(Normal(mdp.initial_mean, mdp.adult_sd), mdp.sea_lice_bounds...)
+
+    # Get the states
+    states = POMDPs.states(mdp)
+
+    # Calculate the probs using the cdf
+    probs = discretize_distribution(dist, states, mdp.skew)
+
+    return SparseCat(states, probs)
 end

@@ -31,6 +31,7 @@ struct EvaluationState
     ProductionWeek::Int64 # The number of weeks since production start
     AnnualWeek::Int64 # The week of the year
     NumberOfFish::Int64 # The number of fish in the pen
+    AvgFishWeight::Float64 # The average weight of the fish in the pen (kg)
     Salinity::Float64 # The salinity of the water (psu)
 end
 
@@ -44,6 +45,7 @@ struct EvaluationObservation
     ProductionWeek::Int64 # The number of weeks since production start
     AnnualWeek::Int64 # The week of the year
     NumberOfFish::Int64 # The number of fish in the pen
+    AvgFishWeight::Float64 # The average weight of the fish in the pen (kg)
     Salinity::Float64 # The salinity of the water (psu)
 end
 
@@ -55,11 +57,27 @@ end
 
     # Parameters
 	lambda::Float64 = 0.5
+    reward_lambdas::Vector{Float64} = [0.05, 0.8, 0.1, 0.05] # [treatment, regulatory, biomass, health]
 	costOfTreatment::Float64 = 10.0
 	growthRate::Float64 = 0.3
 	rho::Float64 = 0.95
     discount_factor::Float64 = 0.95
     skew::Bool = false
+
+    # Regulation parameters
+    regulation_limit::Float64 = 0.5
+
+    # Weight parameters
+    w_max::Float64 = 5.0                        # asymptotic harvest weight (kg)
+    k_growth::Float64 = 0.01                    # weekly von Bertalanffy/logistic-like rate
+    temp_sensitivity::Float64 = 0.03            # temperature effect on growth rate (°C)
+
+    # Fish count parameters
+    nat_mort_rate::Float64 = 0.0008             # weekly natural mortality fraction
+    trt_mort_bump::Float64 = 0.005              # extra mortality fraction in treatment weeks
+    harvest_schedule::Function = (week::Int)->0 # fish harvested this week (kg)
+    move_in_fn::Function = (week::Int)->0       # fish moved in (kg)
+    move_out_fn::Function = (week::Int)->0      # fish moved out (kg)
 
     # Parameters from Aldrin et al. 2023
     n_sample::Int = 20                         # number of fish counted (ntc)
@@ -74,20 +92,24 @@ end
     mean_fish_weight_kg::Float64 = 1.5         # mean fish weight (kg)
     W0::Float64 = 0.1 # kg
 
-    # Sea lice bounds
+    # Bounds
     sea_lice_bounds::Tuple{Float64, Float64} = (0.0, 30.0)
     initial_bounds::Tuple{Float64, Float64} = (0.0, 0.25)
+    weight_bounds::Tuple{Float64, Float64} = (0.0, 7.0)
+    number_of_fish_bounds::Tuple{Float64, Float64} = (0.0, 200000.0)
 
-    # Means
-    adult_mean::Float64 = 0.125
-    sessile_mean::Float64 = 0.1
-    motile_mean::Float64 = 0.1
+    # Means: Empirical from Aldrin et al. 2023
+    adult_mean::Float64 = 0.13
+    motile_mean::Float64 = 0.47
+    sessile_mean::Float64 = 0.12
 
     # Transition and Observation Noise
     adult_sd::Float64 = 0.1
     motile_sd::Float64 = 0.1
     sessile_sd::Float64 = 0.1
     temp_sd::Float64 = 0.0 # TODO: remember to change this back to 0.1
+    weight_sd::Float64 = 0.05
+    number_of_fish_sd::Float64 = 0.0
 
     # Distributions
     adult_dist::Distribution = Normal(0, adult_sd)
@@ -137,6 +159,21 @@ function POMDPs.transition(pomdp::SeaLiceSimMDP, s::EvaluationState, a::Action)
         next_motile = max(next_motile, 0.0)
         next_sessile = max(next_sessile, 0.0)
         next_pred = clamp(next_adult, pomdp.sea_lice_bounds...)
+ 
+        # Calculate the weight transition based on a von Bertalanffy / logistic-like weekly update
+        # W_{t+1} = W_t + (k0 * f(T)) * (w_max - W_t)
+        k0 = max(pomdp.k_growth  * (1 + pomdp.temp_sensitivity * (s.Temperature - 10)), 0.0)
+        next_average_weight = s.AvgFishWeight + k0 * (pomdp.w_max - s.AvgFishWeight)
+        next_average_weight = clamp(next_average_weight, pomdp.weight_bounds...)
+
+        # Calculate the next number of fish
+        survival_rate = (1 - pomdp.nat_mort_rate) * (1 - get_treatment_mortality_rate(a))
+        harvest = harvest_schedule(s.ProductionWeek)
+        move_in = move_in_fn(s.ProductionWeek)
+        move_out = move_out_fn(s.ProductionWeek)
+        survived_fish = round(Int, floor(s.NumberOfFish * survival_rate))
+        next_number_of_fish = survived_fish + move_in - move_out - harvest
+        next_number_of_fish = clamp(next_number_of_fish, pomdp.number_of_fish_bounds...)
 
         return EvaluationState(
             next_pred, # SeaLiceLevel
@@ -146,7 +183,8 @@ function POMDPs.transition(pomdp::SeaLiceSimMDP, s::EvaluationState, a::Action)
             next_temp, # Temperature
             s.ProductionWeek + 1, # ProductionWeek
             (s.AnnualWeek + 1) % 52, # AnnualWeek
-            s.NumberOfFish, # NumberOfFish is constant
+            next_number_of_fish, # NumberOfFish
+            next_average_weight, # AvgFishWeight
             s.Salinity, # Salinity is constant
         )
     end
@@ -211,6 +249,12 @@ function POMDPs.observation(pomdp::SeaLiceSimMDP, a::Action, s::EvaluationState)
         # Clamp the sea lice levels to be positive and within the bounds of the SeaLicePOMDP
         pred_adult = clamp(pred_adult, pomdp.sea_lice_bounds...)
 
+        # Observe the number of fish and average weight
+        observed_number_of_fish = round(Int, floor(s.NumberOfFish + rand(rng, Normal(0, pomdp.number_of_fish_sd))))
+        observed_number_of_fish = clamp(observed_number_of_fish, pomdp.number_of_fish_bounds...)
+        observed_average_weight = s.AvgFishWeight + rand(rng, Normal(0, pomdp.weight_sd))
+        observed_average_weight = clamp(observed_average_weight, pomdp.weight_bounds...)
+
         return EvaluationObservation(
             pred_adult, # SeaLiceLevel
             observed_adult, # Adult
@@ -219,7 +263,8 @@ function POMDPs.observation(pomdp::SeaLiceSimMDP, a::Action, s::EvaluationState)
             observed_temperature, # Temperature
             s.ProductionWeek, # ProductionWeek is fully observable
             s.AnnualWeek, # AnnualWeek is fully observable
-            s.NumberOfFish, # NumberOfFish is fully observable
+            observed_number_of_fish,
+            observed_average_weight,
             s.Salinity, # Salinity is fully observable
         )
     end
@@ -235,17 +280,23 @@ end
 # -------------------------
 function POMDPs.reward(pomdp::SeaLiceSimMDP, s::EvaluationState, a::Action, sp::EvaluationState)
 
-    alpha_1 = pomdp.lambda
-    alpha_2 = 1
-    alpha_3 = 1
-    alpha_4 = 1
+    λ_trt, λ_reg, λ_bio,λ_health = pomdp.reward_lambdas
 
-    lice_penalty = alpha_1 * s.SeaLiceLevel
-    regulatory_penalty = alpha_2 * (s.Adult > 0.5)
-    lost_biomass_penalty = alpha_3 * (s.NumberOfFish - sp.NumberOfFish)
-    treatment_penalty = alpha_4 * get_treatment_cost(a)
+    # Treatment cost
+    treatment_cost = λ_trt * get_treatment_cost(a)
 
-    return - (lice_penalty + treatment_penalty + lost_biomass_penalty + regulatory_penalty)
+    # Regulatory penalty
+    regulatory_penalty = λ_reg * (s.Adult > pomdp.regulation_limit)
+
+    # Lost biomass
+    Bt = s.AvgFishWeight * s.NumberOfFish
+    Btp = sp.AvgFishWeight * sp.NumberOfFish
+    lost_biomass = λ_bio * max(Bt - Btp, 0.0)
+
+    # Fish disease
+    fish_disease = λ_health * (s.SeaLiceLevel + get_fish_disease(a))
+
+    return - (fish_disease + treatment_cost + lost_biomass + regulatory_penalty)
 end
 
 # -------------------------
@@ -280,6 +331,7 @@ function POMDPs.initialstate(pomdp::SeaLiceSimMDP)
             1, # ProductionWeek
             pomdp.production_start_week, # AnnualWeek
             200000, # NumberOfFish at the start of production
+            0.1, # AvgFishWeight at the start of production (initial weight)
             30.0, # Salinity at the start of production
         )
     end
