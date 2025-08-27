@@ -138,6 +138,7 @@ function extract_reward_metrics(data, config)
     data.num_regulatory_penalties = zeros(Float64, nrow(data))
     data.fish_disease = zeros(Float64, nrow(data))
     data.lost_biomass = zeros(Float64, nrow(data))
+    data.mean_adult_sea_lice_level = zeros(Float64, nrow(data))
 
     # For each episode, extract the number of treatments, regulatory penalties, lost biomass, and fish disease
     for (i, row) in enumerate(eachrow(data))
@@ -146,6 +147,9 @@ function extract_reward_metrics(data, config)
         h = row.history
         states = collect(h[:s])
         actions = collect(h[:a])
+
+        # Get mean adult sea lice level
+        mean_adult_sea_lice_level = mean(s.Adult for s in states)
 
         # Get total treatment cost
         treatment_cost = sum(get_treatment_cost(a) for a in actions)
@@ -172,6 +176,7 @@ function extract_reward_metrics(data, config)
         data.num_regulatory_penalties[i] = num_regulatory_penalties
         data.lost_biomass[i] = lost_biomass
         data.fish_disease[i] = fish_disease
+        data.mean_adult_sea_lice_level[i] = mean_adult_sea_lice_level
 
     end
 
@@ -202,18 +207,20 @@ function display_reward_metrics(parallel_data, config)
                 :reward => (x -> mean_and_ci(x).ci) => :ci_reward,
                 :treatment_cost => (x -> mean_and_ci(x).mean) => :mean_treatment_cost,
                 :treatment_cost => (x -> mean_and_ci(x).ci) => :ci_treatment_cost,
+                :mean_adult_sea_lice_level => (x -> mean_and_ci(x).mean) => :mean_mean_adult_sea_lice_level,
+                :mean_adult_sea_lice_level => (x -> mean_and_ci(x).ci) => :ci_mean_adult_sea_lice_level,
                 :num_regulatory_penalties => (x -> mean_and_ci(x).mean) => :mean_num_regulatory_penalties,
                 :num_regulatory_penalties => (x -> mean_and_ci(x).ci) => :ci_num_regulatory_penalties,
                 :lost_biomass => (x -> mean_and_ci(x).mean) => :mean_lost_biomass,
                 :lost_biomass => (x -> mean_and_ci(x).ci) => :ci_lost_biomass,
                 :fish_disease => (x -> mean_and_ci(x).mean) => :mean_fish_disease,
                 :fish_disease => (x -> mean_and_ci(x).ci) => :ci_fish_disease,
-                :treatments => (x -> mean_and_ci([get(t, NoTreatment, 0) for t in x]).mean) => :mean_num_NoTreatment,
-                :treatments => (x -> mean_and_ci([get(t, NoTreatment, 0) for t in x]).ci) => :ci_num_NoTreatment,
-                :treatments => (x -> mean_and_ci([get(t, Treatment, 0) for t in x]).mean) => :mean_num_Treatment,
-                :treatments => (x -> mean_and_ci([get(t, Treatment, 0) for t in x]).ci) => :ci_num_Treatment,
-                :treatments => (x -> mean_and_ci([get(t, ThermalTreatment, 0) for t in x]).mean) => :mean_num_ThermalTreatment,
-                :treatments => (x -> mean_and_ci([get(t, ThermalTreatment, 0) for t in x]).ci) => :ci_num_ThermalTreatment)
+                :treatments => (x -> mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).mean) => :mean_num_NoTreatment,
+                :treatments => (x -> mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).ci) => :ci_num_NoTreatment,
+                :treatments => (x -> mean_and_ci([get(t[1], Treatment, 0) for t in x]).mean) => :mean_num_Treatment,
+                :treatments => (x -> mean_and_ci([get(t[1], Treatment, 0) for t in x]).ci) => :ci_num_Treatment,
+                :treatments => (x -> mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).mean) => :mean_num_ThermalTreatment,
+                :treatments => (x -> mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).ci) => :ci_num_ThermalTreatment)
         else
             # Process without treatments column
             result = combine(
@@ -224,6 +231,8 @@ function display_reward_metrics(parallel_data, config)
                 :treatment_cost => (x -> mean_and_ci(x).ci) => :ci_treatment_cost,
                 :num_regulatory_penalties => (x -> mean_and_ci(x).mean) => :mean_num_regulatory_penalties,
                 :num_regulatory_penalties => (x -> mean_and_ci(x).ci) => :ci_num_regulatory_penalties,
+                :mean_adult_sea_lice_level => (x -> mean_and_ci(x).mean) => :mean_mean_adult_sea_lice_level,
+                :mean_adult_sea_lice_level => (x -> mean_and_ci(x).ci) => :ci_mean_adult_sea_lice_level,
                 :lost_biomass => (x -> mean_and_ci(x).mean) => :mean_lost_biomass,
                 :lost_biomass => (x -> mean_and_ci(x).ci) => :ci_lost_biomass,
                 :fish_disease => (x -> mean_and_ci(x).mean) => :mean_fish_disease,
@@ -236,6 +245,80 @@ function display_reward_metrics(parallel_data, config)
     
     end
 end
+
+# ----------------------------
+# Print the count of each treatment for each policy
+# The treatment count is the number of times each treatment is taken for each policy
+# The treatment count is stored in the data.treatments column
+# ----------------------------
+function print_treatment_frequency(data, config)
+
+    for lambda in config.lambda_values
+
+        println("Lambda: $(lambda)")
+
+        # Get histories for this lambda
+        data_lambda = filter(row -> row.lambda == lambda, data)
+
+        treatment_counts = Dict{String, Dict{String, Vector{Int}}}()
+
+        # Get all unique policies
+        policies = unique(data_lambda.policy)
+
+        for policy in policies
+
+            # Initialize the inner dictionary for this policy
+            treatment_counts[policy] = Dict{String, Vector{Int}}("NoTreatment" => [], "Treatment" => [], "ThermalTreatment" => [])
+
+            # Get histories for this policy
+            data_policy = filter(row -> row.policy == policy, data_lambda)
+
+            # Get all unique seeds
+            seeds = unique(data_policy.seed)
+
+            for seed in seeds
+
+                # Get histories for this seed
+                data_seed = filter(row -> row.seed == seed, data_policy)
+
+                # Get the treatment count from the data.treatments column
+                treatment_count = data_seed.treatments[1]  # Get the first (and only) treatment count dictionary
+
+                # Count the number of times each treatment is taken
+                push!(treatment_counts[policy]["NoTreatment"], get(treatment_count, NoTreatment, 0))
+                push!(treatment_counts[policy]["Treatment"], get(treatment_count, Treatment, 0))
+                push!(treatment_counts[policy]["ThermalTreatment"], get(treatment_count, ThermalTreatment, 0))
+
+            end
+        end
+
+        # Print the treatment counts for each policy as a table
+        # Create a DataFrame from the treatment counts
+        # Add mean and confidence interval to the dataframe
+        treatment_data = []
+        for (policy, counts) in treatment_counts
+            push!(treatment_data, (
+                policy = policy,
+                NoTreatment = mean_and_ci(counts["NoTreatment"]).mean,
+                NoTreatment_ci = mean_and_ci(counts["NoTreatment"]).ci,
+                Treatment = mean_and_ci(counts["Treatment"]).mean,
+                Treatment_ci = mean_and_ci(counts["Treatment"]).ci,
+                ThermalTreatment = mean_and_ci(counts["ThermalTreatment"]).mean,
+                ThermalTreatment_ci = mean_and_ci(counts["ThermalTreatment"]).ci
+            ))
+        end
+        
+        # Convert to DataFrame and display
+        if !isempty(treatment_data)
+            treatment_df = DataFrame(treatment_data)
+            println(treatment_df)
+        else
+            println("No treatment data available for lambda $(lambda)")
+        end
+        
+    end
+end
+
 
 # ----------------------------
 # Print all histories to a text file
