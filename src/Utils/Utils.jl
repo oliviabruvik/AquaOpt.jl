@@ -58,10 +58,22 @@ end
 # Temperature model: Return estimated weekly sea surface temperature (°C) for Norwegian salmon farms.
 # -------------------------
 function get_temperature(annual_week)
-    # return 9.0
-    T_mean = 12.0 #9.0      # average annual temperature (°C)
-    T_amp = 4.5       # amplitude (°C)
-    peak_week = 27      # aligns peak with July (week ~27)
+
+    location = "south"
+
+    if location == "north"
+        T_mean = 12.0 # average annual temperature (°C)
+        T_amp = 4.5 # amplitude (°C)
+        peak_week = 27 # aligns peak with July (week ~27)
+    elseif location == "west"
+        T_mean = 16.0 # average annual temperature (°C)
+        T_amp = 4.5
+        peak_week = 27
+    elseif location == "south"
+        T_mean = 20.0
+        T_amp = 4.5
+        peak_week = 27
+    end
     return T_mean + T_amp * cos(2π * (annual_week - peak_week) / 52)
 end
 
@@ -72,18 +84,43 @@ end
 # https://www.sciencedirect.com/science/article/pii/S0167587724002915
 # -------------------------
 function predict_next_abundances(adult, motile, sessile, temp)
+
+    location = "south"
+
+    if location == "north"
+        d1_val = 1 / (1 + exp(-(-1.5 + 0.5 * (temp - 12))))  # Faster sessile to motile
+        d2_val = 1 / (1 + exp(-(-1.0 + 0.1 * (temp - 12))))  # Faster motile to adult
+    elseif location == "west"
+        d1_val = 1 / (1 + exp(-(-1.5 + 0.5 * (temp - 16))))  # Faster sessile to motile
+        d2_val = 1 / (1 + exp(-(-1.0 + 0.1 * (temp - 16))))  # Faster motile to adult
+    elseif location == "south"
+        d1_val = 1 / (1 + exp(-(-1.5 + 0.5 * (temp - 20))))  # Faster sessile to motile
+        d2_val = 1 / (1 + exp(-(-1.0 + 0.1 * (temp - 20))))  # Faster motile to adult
+    end
     
     # Weekly survival probabilities from Table 1 of Stige et al. 2025.
-    s1 = 0.49  # sessile
-    s2 = 2.3   # sessile → motile scaling
-    s3 = 0.88  # motile
-    s4 = 0.61  # adult
+    if location == "north"
+        s1 = 0.49  # sessile
+        s2 = 2.3   # sessile → motile scaling
+        s3 = 0.88  # motile
+        s4 = 0.61  # adult
+    elseif location == "west"
+        s1 = 0.6  # sessile
+        s2 = 3.0   # sessile → motile scaling
+        s3 = 0.95  # motile
+        s4 = 0.70  # adult
+    elseif location == "south"
+        s1 = 0.8  # sessile
+        s2 = 5.0   # sessile → motile scaling
+        s3 = 0.99  # motile
+        s4 = 0.99  # adult
+    end
 
     # TODO: Remember to change this back to the original values
     # Original: d1_val = 1 / (1 + exp(-(-2.4 + 0.37 * (temp - 9))))
     # Original: d2_val = 1 / (1 + exp(-(-2.1 + 0.037 * (temp - 9))))
-    d1_val = 1 / (1 + exp(-(-1.5 + 0.5 * (temp - 9))))  # Faster sessile to motile
-    d2_val = 1 / (1 + exp(-(-1.0 + 0.1 * (temp - 9))))  # Faster motile to adult
+    # d1_val = 1 / (1 + exp(-(-1.5 + 0.5 * (temp - 16))))  # Faster sessile to motile
+    # d2_val = 1 / (1 + exp(-(-1.0 + 0.1 * (temp - 16))))  # Faster motile to adult
 
     # Get the predicted sea lice levels
     pred_sessile = s1 * sessile
@@ -91,7 +128,13 @@ function predict_next_abundances(adult, motile, sessile, temp)
     pred_adult = s4 * adult + d2_val * 0.5 * (s3 + s4) * motile
 
     # Add an influx of sessiles from the sea
-    pred_sessile += 0.01
+    if location == "north"
+        pred_sessile += 0.01
+    elseif location == "west"
+        pred_sessile += 0.1
+    elseif location == "south"
+        pred_sessile += 0.2
+    end
 
     # Clamp the sea lice levels to be positive
     pred_adult = max(pred_adult, zero(pred_adult))
