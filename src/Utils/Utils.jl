@@ -85,11 +85,11 @@ end
 # -------------------------
 function predict_next_abundances(adult, motile, sessile, temp)
 
-    location = "south"
+    location = "north"
 
     if location == "north"
-        d1_val = 1 / (1 + exp(-(-1.5 + 0.5 * (temp - 12))))  # Faster sessile to motile
-        d2_val = 1 / (1 + exp(-(-1.0 + 0.1 * (temp - 12))))  # Faster motile to adult
+        d1_val = 1 / (1 + exp(-(-2.4 + 0.37 * (temp - 9))))  # Faster sessile to motile
+        d2_val = 1 / (1 + exp(-(-2.1 + 0.037 * (temp - 9))))  # Faster motile to adult
     elseif location == "west"
         d1_val = 1 / (1 + exp(-(-1.5 + 0.5 * (temp - 16))))  # Faster sessile to motile
         d2_val = 1 / (1 + exp(-(-1.0 + 0.1 * (temp - 16))))  # Faster motile to adult

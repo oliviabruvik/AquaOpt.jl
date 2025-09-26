@@ -128,6 +128,7 @@ POMDPs.actions(mdp::SeaLiceSimMDP) = [NoTreatment, Treatment, ThermalTreatment]
 POMDPs.discount(mdp::SeaLiceSimMDP) = mdp.discount_factor
 POMDPs.isterminal(mdp::SeaLiceSimMDP, s::EvaluationState) = false
 
+
 # -------------------------
 # Transition function: the current sea lice level and the predicted sea lice level the following week
 # are affected by the treatment and growth rate. The predicted sea lice level the following week will 
@@ -150,7 +151,7 @@ function POMDPs.transition(pomdp::SeaLiceSimMDP, s::EvaluationState, a::Action)
         next_adult = next_adult + rand(rng, pomdp.adult_dist)
         next_motile = next_motile + rand(rng, pomdp.motile_dist)
         next_sessile = next_sessile + rand(rng, pomdp.sessile_dist)
-        next_temp = next_temp + rand(rng, pomdp.temp_dist)
+        next_rtemp = next_temp + rand(rng, pomdp.temp_dist)
 
         # Clamp the sea lice levels to be positive and within the bounds of the SeaLicePOMDP
         next_adult = max(next_adult, 0.0)

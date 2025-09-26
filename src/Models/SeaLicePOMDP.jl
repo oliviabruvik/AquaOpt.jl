@@ -60,7 +60,7 @@ end
     W0::Float64 = 0.1                  # weight centering (kg)
 
     # Count bounds
-    sea_lice_bounds::Tuple{Float64, Float64} = (0.0, 30.0)
+    sea_lice_bounds::Tuple{Float64, Float64} = (0.0, 5.0)
     initial_bounds::Tuple{Float64, Float64} = (0.0, 0.25)
     initial_mean::Float64 = 0.13
     
@@ -182,6 +182,11 @@ function POMDPs.observation(mdp::SeaLiceMDP, a::Action, s::SeaLiceState)
         probs = normalize(probs, 1)
     end
 
+    # # Set the probs to 1 for the state we are at and 0 for the rest
+    # observations = POMDPs.observations(mdp)
+    # probs = zeros(length(observations))
+    # probs[obsindex(mdp, s)] = 1.0
+
     return SparseCat(observations, probs)
 end
 
@@ -196,8 +201,13 @@ function POMDPs.reward(mdp::SeaLiceMDP, s::SeaLiceState, a::Action, sp::SeaLiceS
     treatment_cost = get_treatment_cost(a)
 
     # Regulatory penalty
-    regulatory_penalty = get_regulatory_penalty(a) * (s.SeaLiceLevel > mdp.regulation_limit ? 1.0 : 0.0)
-
+    over_limit = s.SeaLiceLevel > mdp.regulation_limit
+    if (over_limit && a == NoTreatment)
+        regulatory_penalty = 1000.0
+    else
+        regulatory_penalty = 15.0
+    end
+    
     # Lost biomass
     lost_biomass = 0
 

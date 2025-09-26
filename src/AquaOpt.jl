@@ -45,11 +45,14 @@ plotlyjs()  # Activate Plotly backend
 function simulate_policies(algorithms, config)
     @info "Simulating policies"
     parallel_data = simulate_all_policies(algorithms, config)
-    # Simulate policies
-    for algo in algorithms
-        println("Simulating $(algo.solver_name)")
-        histories = simulate_policy(algo, config)
-        avg_results = evaluate_simulation_results(config, algo, histories)
+
+    if config.high_fidelity_sim
+        #Simulate policies
+        for algo in algorithms
+            println("Simulating $(algo.solver_name)")
+            histories = simulate_policy(algo, config)
+            avg_results = evaluate_simulation_results(config, algo, histories)
+        end
     end
     return parallel_data
 end
@@ -67,13 +70,21 @@ function plot_plos_one_plots(parallel_data, config)
     @info "Saved all plos one plots to $(config.figures_dir)"
 end
 
+function run_experiments(;first_step_flag="solve", log_space=true, experiment_name="exp", mode="light")
+
+    main(first_step_flag=first_step_flag, log_space=true, experiment_name="log_space_ekf", mode="paper", ekf_filter=true)
+    main(first_step_flag=first_step_flag, log_space=false, experiment_name="raw_space_ekf", mode="paper", ekf_filter=false)
+    main(first_step_flag=first_step_flag, log_space=true, experiment_name="log_space_noekf", mode="paper", ekf_filter=false)
+    main(first_step_flag=first_step_flag, log_space=false, experiment_name="raw_space_noekf", mode="paper", ekf_filter=true)
+
+end
 
 # ----------------------------
 # Main function
 # ----------------------------
-function main(;first_step_flag="solve", log_space=true, experiment_name="exp", mode="light")
+function main(;first_step_flag="solve", log_space=true, experiment_name="exp", mode="light", ekf_filter=true)
 
-    config, heuristic_config = setup_experiment_configs(experiment_name, log_space, mode)
+    config, heuristic_config = setup_experiment_configs(experiment_name, log_space, ekf_filter, mode)
     algorithms = define_algorithms(config, heuristic_config)
 
     if first_step_flag == "solve"
@@ -112,6 +123,11 @@ function main(;first_step_flag="solve", log_space=true, experiment_name="exp", m
         parallel_data = data
     end
 
+    if config.high_fidelity_sim == false
+        print_reward_metrics_for_vi_policy(parallel_data, config)
+        exit()
+    end
+
     # Extract reward metrics
     processed_data = extract_reward_metrics(parallel_data, config)
 
@@ -141,7 +157,7 @@ end
 # ----------------------------
 # Set up and save experiment configuration
 # ----------------------------
-function setup_experiment_configs(experiment_name, log_space, mode="light")
+function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, mode="light")
 
     # Define experiment configuration
     exp_name = string(Dates.today(), "/", Dates.now(), "_", experiment_name, "_mode_", mode)
@@ -153,6 +169,7 @@ function setup_experiment_configs(experiment_name, log_space, mode="light")
             num_episodes=1000,
             steps_per_episode=104,
             log_space=log_space,
+            ekf_filter=ekf_filter,
             experiment_name=exp_name,
             verbose=false,
             step_through=false,
@@ -172,6 +189,7 @@ function setup_experiment_configs(experiment_name, log_space, mode="light")
             num_episodes=1,
             steps_per_episode=20,
             log_space=log_space,
+            ekf_filter=ekf_filter,
             experiment_name=exp_name,
             verbose=true,
             step_through=true,
@@ -185,6 +203,7 @@ function setup_experiment_configs(experiment_name, log_space, mode="light")
             num_episodes=20,
             steps_per_episode=104,
             log_space=log_space,
+            ekf_filter=ekf_filter,
             experiment_name=exp_name,
             verbose=false,
             step_through=false,
@@ -195,17 +214,19 @@ function setup_experiment_configs(experiment_name, log_space, mode="light")
         )
     elseif mode == "paper"
         config = ExperimentConfig(
-            num_episodes=10,
+            num_episodes=1000,
             steps_per_episode=104,
             log_space=log_space,
+            ekf_filter=ekf_filter,
             experiment_name=exp_name,
             verbose=false,
             step_through=false,
             reward_lambdas=[0.7, 0.2, 0.1, 0.1, 0.8], # [treatment, regulatory, biomass, health, sea lice]
-            sarsop_max_time=50.0,
+            sarsop_max_time=5000.0,
             VI_max_iterations=100,
             QMDP_max_iterations=100,
             discount_factor = 0.95,
+            high_fidelity_sim = true,
         )
     end
         
@@ -229,7 +250,7 @@ function define_algorithms(config, heuristic_config)
     native_sarsop_solver = NativeSARSOP.SARSOPSolver(max_time=config.sarsop_max_time, verbose=false)
     nus_sarsop_solver = SARSOP.SARSOPSolver(
         timeout=config.sarsop_max_time,
-        verbose=false,
+        verbose=true,
         policy_filename=joinpath(config.policies_dir, "NUS_SARSOP_Policy/policy.out"),
         pomdp_filename=joinpath(config.experiment_dir, "pomdp_mdp/pomdp.pomdpx")
     )
@@ -242,7 +263,6 @@ function define_algorithms(config, heuristic_config)
         Algorithm(solver_name="AlwaysTreat_Policy"),
         Algorithm(solver_name="Random_Policy"),
         Algorithm(solver_name="Heuristic_Policy", heuristic_config=heuristic_config),
-        # Algorithm(solver=native_sarsop_solver, solver_name="SARSOP_Policy"),
         Algorithm(solver=nus_sarsop_solver, solver_name="NUS_SARSOP_Policy"),
         Algorithm(solver=vi_solver, solver_name="VI_Policy"),
         Algorithm(solver=qmdp_solver, solver_name="QMDP_Policy"),
@@ -373,5 +393,5 @@ if abspath(PROGRAM_FILE) == @__FILE__
 
     @info "Running with mode: $mode_flag, log_space: $log_space_flag, experiment_name: $experiment_name_flag"
 
-    main(first_step_flag=first_step_flag, log_space=log_space_flag, experiment_name=experiment_name_flag, mode=mode_flag)
+    run_experiments(first_step_flag=first_step_flag, log_space=log_space_flag, experiment_name=experiment_name_flag, mode=mode_flag)
 end

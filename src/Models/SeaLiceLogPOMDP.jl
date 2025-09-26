@@ -57,7 +57,7 @@ end
     W0::Float64 = 0.1                  # weight centering (kg)
 
     # Count bounds
-    sea_lice_bounds::Tuple{Float64, Float64} = (log(1e-3), log(30.0))
+    sea_lice_bounds::Tuple{Float64, Float64} = (log(1e-3), log(5.0))
     initial_bounds::Tuple{Float64, Float64} = (log(1e-3), log(0.25))
     initial_mean::Float64 = log(0.13)
 
@@ -190,6 +190,11 @@ function POMDPs.observation(mdp::SeaLiceLogMDP, a::Action, s::SeaLiceLogState)
     else
         probs = normalize(probs, 1)
     end
+
+    # observations = POMDPs.observations(mdp)
+    # closest_idx = argmin(abs.(mdp.log_sea_lice_range .- s.SeaLiceLevel))
+    # probs = zeros(length(observations))
+    # probs[closest_idx] = 1.0
 
     return SparseCat(observations, probs)
 

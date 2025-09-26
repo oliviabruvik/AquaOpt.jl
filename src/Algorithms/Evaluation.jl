@@ -284,14 +284,32 @@ function display_reward_metrics(parallel_data, config, display_ci=false)
         println("-"^80)
         
         # Print each policy's results
+        display_ci = true
+        result = combine(
+            data_grouped_by_policy,
+            :reward => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_reward,
+            :reward => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_reward,
+            :mean_rewards_across_sims => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_mean_rewards_across_sims,
+            :mean_rewards_across_sims => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_mean_rewards_across_sims,
+            :treatment_cost => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_treatment_cost,
+            :treatment_cost => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_treatment_cost,
+            :num_regulatory_penalties => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_num_regulatory_penalties,
+            :num_regulatory_penalties => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_num_regulatory_penalties,
+            :mean_adult_sea_lice_level => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_mean_adult_sea_lice_level,
+            :mean_adult_sea_lice_level => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_mean_adult_sea_lice_level,
+            :lost_biomass_1000kg => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_lost_biomass_1000kg,
+            :lost_biomass_1000kg => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_lost_biomass_1000kg,
+            :fish_disease => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_fish_disease,
+            :fish_disease => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_fish_disease
+        )
         for row in eachrow(result)
             policy_name = row.policy
             mean_reward = display_ci ? @sprintf("%.3f±%.3f", row.mean_reward, row.ci_reward) : @sprintf("%.3f", row.mean_reward)
-            treatment_cost = display_ci ? @sprintf("%.1f±%.1f", row.mean_treatment_cost, row.ci_treatment_cost) : @sprintf("%.1f", row.mean_treatment_cost)
-            reg_penalties = display_ci ? @sprintf("%.1f±%.1f", row.mean_num_regulatory_penalties, row.ci_num_regulatory_penalties) : @sprintf("%.1f", row.mean_num_regulatory_penalties)
+            treatment_cost = display_ci ? @sprintf("%.3f±%.3f", row.mean_treatment_cost, row.ci_treatment_cost) : @sprintf("%.3f", row.mean_treatment_cost)
+            reg_penalties = display_ci ? @sprintf("%.3f±%.3f", row.mean_num_regulatory_penalties, row.ci_num_regulatory_penalties) : @sprintf("%.3f", row.mean_num_regulatory_penalties)
             sea_lice = display_ci ? @sprintf("%.3f±%.3f", row.mean_mean_adult_sea_lice_level, row.ci_mean_adult_sea_lice_level) : @sprintf("%.3f", row.mean_mean_adult_sea_lice_level)
             fish_disease = display_ci ? @sprintf("%.1f±%.1f", row.mean_fish_disease, row.ci_fish_disease) : @sprintf("%.1f", row.mean_fish_disease)
-            
+
             println(@sprintf("%-20s %12s %12s %12s %12s %12s", 
                            policy_name, mean_reward, treatment_cost, reg_penalties, sea_lice, fish_disease))
         end
@@ -320,6 +338,158 @@ function display_reward_metrics(parallel_data, config, display_ci=false)
         mkpath(config.results_dir)
         CSV.write(joinpath(config.results_dir, "reward_metrics_lambda_$(λ).csv"), result)
     
+    end
+end
+
+function print_reward_metrics_for_vi_policy(data, config)
+
+     # Add new columns to the DataFrame
+     data.mean_rewards_across_sims = zeros(Float64, nrow(data))
+     data.treatment_cost = zeros(Float64, nrow(data))
+     data.treatments = Vector{Dict{Action, Int}}(undef, nrow(data))
+     data.num_regulatory_penalties = zeros(Float64, nrow(data))
+ 
+     # For each episode, extract the number of treatments, regulatory penalties, lost biomass, and fish disease
+     for (i, row) in enumerate(eachrow(data))
+ 
+         # Get the history
+         h = row.history
+         states = collect(h[:s])
+         actions = collect(h[:a])
+         rewards = collect(h[:r])
+ 
+         # Get distribution of treatments
+         treatments = Dict{Action, Int}()
+         for a in actions
+             treatments[a] = get(treatments, a, 0) + 1
+         end
+         # Add to dataframe
+         data.treatment_cost[i] = sum(get_treatment_cost(a) for a in actions)
+         data.treatments[i] = treatments
+         data.num_regulatory_penalties[i] = sum(s.SeaLiceLevel > config.regulation_limit ? 1.0 : 0.0 for s in states)
+         data.mean_rewards_across_sims[i] = mean(rewards)
+     end
+
+     parallel_data = data
+     display_ci = false
+ 
+    # Display the mean and confidence interval for each lambda and each policy
+    for λ in config.lambda_values
+
+        println("Lambda: $(λ)")
+
+        # Filter data for current lambda
+        data_filtered = filter(row -> row.lambda == λ, parallel_data)
+        data_grouped_by_policy = groupby(data_filtered, :policy)
+
+        # Check if treatments column exists in the data
+        if :treatments in names(data_filtered)
+            # Process each column separately to avoid duplicate column names
+            if display_ci
+                result = combine(
+                    data_grouped_by_policy,
+                    :reward => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_reward,
+                    :reward => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_reward,
+                    :mean_rewards_across_sims => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_mean_rewards_across_sims,
+                    :mean_rewards_across_sims => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_mean_rewards_across_sims,
+                    :treatment_cost => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_treatment_cost,
+                    :treatment_cost => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_treatment_cost,
+                    :num_regulatory_penalties => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_num_regulatory_penalties,
+                    :num_regulatory_penalties => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_num_regulatory_penalties,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_NoTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_NoTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], Treatment, 0) for t in x]).mean, digits=2)) => :mean_num_Treatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], Treatment, 0) for t in x]).ci, digits=2)) => :ci_num_Treatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ThermalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_ThermalTreatment
+                )
+            else
+                result = combine(
+                    data_grouped_by_policy,
+                    :reward => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_reward,
+                    :mean_rewards_across_sims => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_mean_rewards_across_sims,
+                    :treatment_cost => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_treatment_cost,
+                    :num_regulatory_penalties => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_num_regulatory_penalties,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_NoTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], Treatment, 0) for t in x]).mean, digits=2)) => :mean_num_Treatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ThermalTreatment
+                )
+            end
+        else
+            # Process without treatments column
+            if display_ci
+                result = combine(
+                    data_grouped_by_policy,
+                    :reward => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_reward,
+                    :reward => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_reward,
+                    :mean_rewards_across_sims => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_mean_rewards_across_sims,
+                    :mean_rewards_across_sims => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_mean_rewards_across_sims,
+                    :treatment_cost => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_treatment_cost,
+                    :treatment_cost => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_treatment_cost,
+                    :num_regulatory_penalties => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_num_regulatory_penalties,
+                    :num_regulatory_penalties => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_num_regulatory_penalties,
+                )
+            else
+                result = combine(
+                    data_grouped_by_policy,
+                    :reward => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_reward,
+                    :mean_rewards_across_sims => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_mean_rewards_across_sims,
+                    :treatment_cost => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_treatment_cost,
+                    :num_regulatory_penalties => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_num_regulatory_penalties,
+                )
+            end
+        end
+
+        # Order by mean reward
+        result = sort(result, :mean_reward, rev=true)
+        println(result)
+
+        # Create pivot table format
+        println("\n" * "="^80)
+        println("LAMBDA: $(λ)")
+        println("="^80)
+        
+        # Print header
+        println(@sprintf("%-20s %12s %12s %12s %12s", 
+                        "Policy", "Mean Reward", "Treatment Cost", "Reg. Penalties", "Sea Lice Level"))
+        println("-"^80)
+        
+        # Print each policy's results
+        for row in eachrow(result)
+            policy_name = row.policy
+            mean_reward = display_ci ? @sprintf("%.3f±%.3f", row.mean_reward, row.ci_reward) : @sprintf("%.3f", row.mean_reward)
+            treatment_cost = display_ci ? @sprintf("%.1f±%.1f", row.mean_treatment_cost, row.ci_treatment_cost) : @sprintf("%.1f", row.mean_treatment_cost)
+            reg_penalties = display_ci ? @sprintf("%.1f±%.1f", row.mean_num_regulatory_penalties, row.ci_num_regulatory_penalties) : @sprintf("%.1f", row.mean_num_regulatory_penalties)
+            sea_lice = display_ci ? @sprintf("%.3f±%.3f", row.mean_mean_adult_sea_lice_level, row.ci_mean_adult_sea_lice_level) : @sprintf("%.3f", row.mean_mean_adult_sea_lice_level)
+            
+            println(@sprintf("%-20s %12s %12s %12s %12s", 
+                        policy_name, mean_reward, treatment_cost, reg_penalties, sea_lice))
+        end
+        
+        # If treatments column exists, print treatment distribution
+        if :treatments in names(data_filtered)
+            println("\nTreatment Distribution:")
+            println("-"^50)
+            println(@sprintf("%-20s %12s %12s %12s", "Policy", "No Treatment", "Chemical", "Thermal"))
+            println("-"^50)
+            
+            for row in eachrow(result)
+                policy_name = row.policy
+                no_treatment = display_ci ? @sprintf("%.1f±%.1f", row.mean_num_NoTreatment, row.ci_num_NoTreatment) : @sprintf("%.1f", row.mean_num_NoTreatment)
+                chemical = display_ci ? @sprintf("%.1f±%.1f", row.mean_num_Treatment, row.ci_num_Treatment) : @sprintf("%.1f", row.mean_num_Treatment)
+                thermal = display_ci ? @sprintf("%.1f±%.1f", row.mean_num_ThermalTreatment, row.ci_num_ThermalTreatment) : @sprintf("%.1f", row.mean_num_ThermalTreatment)
+                
+                println(@sprintf("%-20s %12s %12s %12s", 
+                            policy_name, no_treatment, chemical, thermal))
+            end
+        end
+        
+        println("\n")
+
+        # Save results to csv
+        mkpath(config.results_dir)
+        CSV.write(joinpath(config.results_dir, "reward_metrics_lambda_$(λ).csv"), result)
+
     end
 end
 

@@ -266,3 +266,26 @@ function POMDPs.action(policy::AdaptorPolicy, b)
     bvec = discretize_distribution(Normal(pred_adult, adult_sd), state_space)
     return action(policy.lofi_policy, bvec)
 end
+
+# ----------------------------
+# LOFI Adaptor Policy
+# ----------------------------
+struct LOFIAdaptorPolicy <: Policy
+    lofi_policy::Policy
+    pomdp::POMDP
+end
+
+# Adaptor action
+function POMDPs.action(policy::LOFIAdaptorPolicy, b)
+
+    # Get next action from policy
+    if policy.lofi_policy isa ValueIterationPolicy
+        mode_idx = argmax(b.b)
+        all_states = states(policy.pomdp)
+        state_with_highest_probability = all_states[mode_idx]
+        return action(policy.lofi_policy, state_with_highest_probability)
+    end
+
+    # Discretize alpha vectors (representation of utility over belief states per action)
+    return action(policy.lofi_policy, b)
+end
