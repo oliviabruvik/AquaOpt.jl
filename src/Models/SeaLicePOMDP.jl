@@ -46,6 +46,7 @@ end
 	growthRate::Float64 = 0.3
 	rho::Float64 = 0.95
     discount_factor::Float64 = 0.95
+    full_observability_solver::Bool = false
 
     # Regulation parameters
     regulation_limit::Float64 = 0.5
@@ -60,7 +61,7 @@ end
     W0::Float64 = 0.1                  # weight centering (kg)
 
     # Count bounds
-    sea_lice_bounds::Tuple{Float64, Float64} = (0.0, 30.0)
+    sea_lice_bounds::Tuple{Float64, Float64} = (0.0, 5.0)
     initial_bounds::Tuple{Float64, Float64} = (0.0, 0.25)
     initial_mean::Float64 = 0.13
     
@@ -69,7 +70,7 @@ end
     rng::AbstractRNG = Random.GLOBAL_RNG
 
     # Discretization
-    discretization_step::Float64 = 0.1
+    discretization_step::Float64 = 0.05 # 0.01
     sea_lice_range::Vector{Float64} = collect(sea_lice_bounds[1]:discretization_step:sea_lice_bounds[2])
     initial_range::Vector{Float64} = collect(initial_bounds[1]:discretization_step:initial_bounds[2])
     lindisc::LinearDiscretizer = LinearDiscretizer(collect(sea_lice_bounds[1]:discretization_step:(sea_lice_bounds[2]+discretization_step)))
@@ -79,15 +80,14 @@ end
 # -------------------------
 # POMDPs.jl Interface
 # -------------------------
-POMDPs.states(mdp::SeaLiceMDP) = [SeaLiceState(round(i, digits=1)) for i in mdp.sea_lice_range]
+POMDPs.states(mdp::SeaLiceMDP) = [SeaLiceState(i) for i in mdp.sea_lice_range]
 POMDPs.actions(mdp::SeaLiceMDP) = [NoTreatment, Treatment, ThermalTreatment]
-POMDPs.observations(mdp::SeaLiceMDP) = [SeaLiceObservation(round(i, digits=1)) for i in mdp.sea_lice_range]
+POMDPs.observations(mdp::SeaLiceMDP) = [SeaLiceObservation(i) for i in mdp.sea_lice_range]
 POMDPs.discount(mdp::SeaLiceMDP) = mdp.discount_factor
 POMDPs.isterminal(mdp::SeaLiceMDP, s::SeaLiceState) = false
 POMDPs.stateindex(mdp::SeaLiceMDP, s::SeaLiceState) = encode(mdp.lindisc, s.SeaLiceLevel)
 POMDPs.actionindex(mdp::SeaLiceMDP, a::Action) = encode(mdp.catdisc, a)
 POMDPs.obsindex(mdp::SeaLiceMDP, o::SeaLiceObservation) = encode(mdp.lindisc, o.SeaLiceLevel)
-
 
 # -------------------------
 # Transition
@@ -124,6 +124,16 @@ function POMDPs.observation(mdp::SeaLiceMDP, a::Action, s::SeaLiceState)
 
     # Observation grid
     observations = POMDPs.observations(mdp)
+
+    # If full observability solver, we return the exact state as the observation
+    # to mimic full observability.
+    if mdp.full_observability_solver
+        # Set the probs to 1 for the state we are at and 0 for the rest
+        observations = POMDPs.observations(mdp)
+        probs = zeros(length(observations))
+        probs[obsindex(mdp, s)] = 1.0
+        return SparseCat(observations, probs)
+    end
 
     # (Optional) under-counting correction like p^Scount_ftc
     # paper uses (W - 0.1) with W in kg
@@ -196,8 +206,13 @@ function POMDPs.reward(mdp::SeaLiceMDP, s::SeaLiceState, a::Action, sp::SeaLiceS
     treatment_cost = get_treatment_cost(a)
 
     # Regulatory penalty
-    regulatory_penalty = get_regulatory_penalty(a) * (s.SeaLiceLevel > mdp.regulation_limit ? 1.0 : 0.0)
-
+    over_limit = s.SeaLiceLevel > mdp.regulation_limit
+    if (over_limit && a == NoTreatment)
+        regulatory_penalty = 1000.0
+    else
+        regulatory_penalty = 15.0
+    end
+    
     # Lost biomass
     lost_biomass = 0
 
