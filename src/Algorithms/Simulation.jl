@@ -45,7 +45,7 @@ function create_sim_pomdp(config, λ)
     # Simulate policies on a POMDP with a larger state space
     # for a realistic evaluation of performance. 
     if config.high_fidelity_sim
-        return SeaLiceSimMDP(
+        return SeaLiceSimPOMDP(
             lambda=λ,
             reward_lambdas=config.reward_lambdas,
             costOfTreatment=config.costOfTreatment,
@@ -63,7 +63,7 @@ function create_sim_pomdp(config, λ)
     else
         # Use the same POMDP type that policies were trained on
         if config.log_space
-            return SeaLiceLogMDP(
+            return SeaLiceLogPOMDP(
                 lambda=λ,
                 reward_lambdas=config.reward_lambdas,
                 costOfTreatment=config.costOfTreatment,
@@ -76,7 +76,7 @@ function create_sim_pomdp(config, λ)
                 full_observability_solver=config.full_observability_solver,
             )
         else
-            return SeaLiceMDP(
+            return SeaLicePOMDP(
                 lambda=λ,
                 reward_lambdas=config.reward_lambdas,
                 costOfTreatment=config.costOfTreatment,
