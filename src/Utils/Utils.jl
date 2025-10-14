@@ -10,22 +10,58 @@ include("SharedTypes.jl")
 # -------------------------
 function discretize_distribution(dist::Distribution, space::Any)
 
-    probs = zeros(length(space))
-    past_cdf = 0.0
-    
-    # Add safety check for NaN values
+    n = length(space)
+    probs = zeros(n)
+
+    # Each state represents the CENTER of a bin
+    # We calculate bin edges as midpoints between consecutive state centers
     for (i, s) in enumerate(space)
-        curr_cdf = cdf(dist, s.SeaLiceLevel)
-        
-        # Check for NaN values
-        if isnan(curr_cdf)
-            @warn("NaN detected in CDF calculation. Distribution: $dist, State: $s")
-            # Fallback to uniform distribution
-            return fill(1.0/length(space), length(space))
+        if i == 1
+            # First bin: from -∞ to midpoint between states[1] and states[2]
+            if n > 1
+                upper = (space[1].SeaLiceLevel + space[2].SeaLiceLevel) / 2
+                curr_cdf = cdf(dist, upper)
+            else
+                # Only one state - gets all probability
+                curr_cdf = 1.0
+            end
+
+            # Check for NaN values
+            if isnan(curr_cdf)
+                @warn("NaN detected in CDF calculation. Distribution: $dist, State: $s")
+                return fill(1.0/n, n)
+            end
+
+            probs[i] = curr_cdf
+
+        elseif i == n
+            # Last bin: from midpoint to +∞
+            lower = (space[n-1].SeaLiceLevel + space[n].SeaLiceLevel) / 2
+            lower_cdf = cdf(dist, lower)
+
+            # Check for NaN values
+            if isnan(lower_cdf)
+                @warn("NaN detected in CDF calculation. Distribution: $dist, State: $s")
+                return fill(1.0/n, n)
+            end
+
+            probs[i] = 1.0 - lower_cdf
+
+        else
+            # Middle bins: from midpoint below to midpoint above
+            lower = (space[i-1].SeaLiceLevel + space[i].SeaLiceLevel) / 2
+            upper = (space[i].SeaLiceLevel + space[i+1].SeaLiceLevel) / 2
+            lower_cdf = cdf(dist, lower)
+            upper_cdf = cdf(dist, upper)
+
+            # Check for NaN values
+            if isnan(lower_cdf) || isnan(upper_cdf)
+                @warn("NaN detected in CDF calculation. Distribution: $dist, State: $s")
+                return fill(1.0/n, n)
+            end
+
+            probs[i] = upper_cdf - lower_cdf
         end
-        
-        probs[i] = curr_cdf - past_cdf
-        past_cdf = curr_cdf
     end
 
     # Check for negative probabilities (shouldn't happen with CDF)
@@ -57,9 +93,7 @@ end
 # -------------------------
 # Temperature model: Return estimated weekly sea surface temperature (°C) for Norwegian salmon farms.
 # -------------------------
-function get_temperature(annual_week)
-
-    location = "south"
+function get_temperature(annual_week, location="north")
 
     if location == "north"
         T_mean = 12.0 # average annual temperature (°C)
@@ -73,6 +107,8 @@ function get_temperature(annual_week)
         T_mean = 20.0
         T_amp = 4.5
         peak_week = 27
+    else
+        error("Invalid location: $location. Must be 'north', 'west', or 'south'")
     end
     return T_mean + T_amp * cos(2π * (annual_week - peak_week) / 52)
 end
@@ -83,21 +119,21 @@ end
 # Based on A salmon lice prediction model, Stige et al. 2025.
 # https://www.sciencedirect.com/science/article/pii/S0167587724002915
 # -------------------------
-function predict_next_abundances(adult, motile, sessile, temp)
-
-    location = "north"
+function predict_next_abundances(adult, motile, sessile, temp, location="north")
 
     if location == "north"
-        d1_val = 1 / (1 + exp(-(-2.4 + 0.37 * (temp - 9))))  # Faster sessile to motile
-        d2_val = 1 / (1 + exp(-(-2.1 + 0.037 * (temp - 9))))  # Faster motile to adult
+        d1_val = 1 / (1 + exp(-(-2.4 + 0.37 * (temp - 9))))  # Sessile to motile
+        d2_val = 1 / (1 + exp(-(-2.1 + 0.037 * (temp - 9))))  # Motile to adult
     elseif location == "west"
         d1_val = 1 / (1 + exp(-(-1.5 + 0.5 * (temp - 16))))  # Faster sessile to motile
         d2_val = 1 / (1 + exp(-(-1.0 + 0.1 * (temp - 16))))  # Faster motile to adult
     elseif location == "south"
         d1_val = 1 / (1 + exp(-(-1.5 + 0.5 * (temp - 20))))  # Faster sessile to motile
         d2_val = 1 / (1 + exp(-(-1.0 + 0.1 * (temp - 20))))  # Faster motile to adult
+    else
+        error("Invalid location: $location. Must be 'north', 'west', or 'south'")
     end
-    
+
     # Weekly survival probabilities from Table 1 of Stige et al. 2025.
     if location == "north"
         s1 = 0.49  # sessile
@@ -115,12 +151,6 @@ function predict_next_abundances(adult, motile, sessile, temp)
         s3 = 0.99  # motile
         s4 = 0.99  # adult
     end
-
-    # TODO: Remember to change this back to the original values
-    # Original: d1_val = 1 / (1 + exp(-(-2.4 + 0.37 * (temp - 9))))
-    # Original: d2_val = 1 / (1 + exp(-(-2.1 + 0.037 * (temp - 9))))
-    # d1_val = 1 / (1 + exp(-(-1.5 + 0.5 * (temp - 16))))  # Faster sessile to motile
-    # d2_val = 1 / (1 + exp(-(-1.0 + 0.1 * (temp - 16))))  # Faster motile to adult
 
     # Get the predicted sea lice levels
     pred_sessile = s1 * sessile

@@ -34,14 +34,14 @@ end
 # Action enum is imported from SharedTypes.jl
 
 # -------------------------
-# SeaLiceMDP Definition
+# SeaLicePOMDP Definition
 # -------------------------
-"Sea lice MDP with growth dynamics and treatment effects."
-@with_kw struct SeaLiceMDP <: POMDP{SeaLiceState, Action, SeaLiceObservation}
+"Sea lice POMDP with growth dynamics and treatment effects."
+@with_kw struct SeaLicePOMDP <: POMDP{SeaLiceState, Action, SeaLiceObservation}
 
     # Parameters
 	lambda::Float64 = 0.5
-    reward_lambdas::Vector{Float64} = [0.5, 0.5, 0.0, 0.0] # [treatment, regulatory, biomass, health]
+    reward_lambdas::Vector{Float64} = [0.5, 0.5, 0.0, 0.0, 0.0] # [treatment, regulatory, biomass, health, sea_lice]
 	costOfTreatment::Float64 = 10.0
 	growthRate::Float64 = 0.3
 	rho::Float64 = 0.95
@@ -80,35 +80,35 @@ end
 # -------------------------
 # POMDPs.jl Interface
 # -------------------------
-POMDPs.states(mdp::SeaLiceMDP) = [SeaLiceState(i) for i in mdp.sea_lice_range]
-POMDPs.actions(mdp::SeaLiceMDP) = [NoTreatment, Treatment, ThermalTreatment]
-POMDPs.observations(mdp::SeaLiceMDP) = [SeaLiceObservation(i) for i in mdp.sea_lice_range]
-POMDPs.discount(mdp::SeaLiceMDP) = mdp.discount_factor
-POMDPs.isterminal(mdp::SeaLiceMDP, s::SeaLiceState) = false
-POMDPs.stateindex(mdp::SeaLiceMDP, s::SeaLiceState) = encode(mdp.lindisc, s.SeaLiceLevel)
-POMDPs.actionindex(mdp::SeaLiceMDP, a::Action) = encode(mdp.catdisc, a)
-POMDPs.obsindex(mdp::SeaLiceMDP, o::SeaLiceObservation) = encode(mdp.lindisc, o.SeaLiceLevel)
+POMDPs.states(pomdp::SeaLicePOMDP) = [SeaLiceState(i) for i in pomdp.sea_lice_range]
+POMDPs.actions(pomdp::SeaLicePOMDP) = [NoTreatment, Treatment, ThermalTreatment]
+POMDPs.observations(pomdp::SeaLicePOMDP) = [SeaLiceObservation(i) for i in pomdp.sea_lice_range]
+POMDPs.discount(pomdp::SeaLicePOMDP) = pomdp.discount_factor
+POMDPs.isterminal(pomdp::SeaLicePOMDP, s::SeaLiceState) = false
+POMDPs.stateindex(pomdp::SeaLicePOMDP, s::SeaLiceState) = encode(pomdp.lindisc, s.SeaLiceLevel)
+POMDPs.actionindex(pomdp::SeaLicePOMDP, a::Action) = encode(pomdp.catdisc, a)
+POMDPs.obsindex(pomdp::SeaLicePOMDP, o::SeaLiceObservation) = encode(pomdp.lindisc, o.SeaLiceLevel)
 
 # -------------------------
 # Transition
 # -------------------------
-function POMDPs.transition(mdp::SeaLiceMDP, s::SeaLiceState, a::Action)
+function POMDPs.transition(pomdp::SeaLicePOMDP, s::SeaLiceState, a::Action)
 
     # Apply treatment
     rf_a, rf_m, rf_s = get_treatment_effectiveness(a)
     adult = s.SeaLiceLevel * (1 - rf_a)
 
     # Calculate the mean of the transition distribution
-    μ = exp(mdp.growthRate) * adult
+    μ = exp(pomdp.growthRate) * adult
 
     # Clamp the mean to the range of the sea lice range
-    μ = clamp(μ, mdp.sea_lice_bounds...)
+    μ = clamp(μ, pomdp.sea_lice_bounds...)
 
     # Get the distribution
-    dist = truncated(Normal(μ, mdp.adult_sd), mdp.sea_lice_bounds...)
+    dist = truncated(Normal(μ, pomdp.adult_sd), pomdp.sea_lice_bounds...)
 
     # Get the states
-    states = POMDPs.states(mdp)
+    states = POMDPs.states(pomdp)
 
     # Calculate the probs using the cdf
     probs = discretize_distribution(dist, states)
@@ -120,25 +120,25 @@ end
 # Observation function: the current count of adults is measured with a negative binomial
 # distribution.
 # -------------------------
-function POMDPs.observation(mdp::SeaLiceMDP, a::Action, s::SeaLiceState)
+function POMDPs.observation(pomdp::SeaLicePOMDP, a::Action, sp::SeaLiceState)
 
     # Observation grid
-    observations = POMDPs.observations(mdp)
+    observations = POMDPs.observations(pomdp)
 
     # If full observability solver, we return the exact state as the observation
     # to mimic full observability.
-    if mdp.full_observability_solver
+    if pomdp.full_observability_solver
         # Set the probs to 1 for the state we are at and 0 for the rest
-        observations = POMDPs.observations(mdp)
+        observations = POMDPs.observations(pomdp)
         probs = zeros(length(observations))
-        probs[obsindex(mdp, s)] = 1.0
+        probs[obsindex(pomdp, SeaLiceObservation(sp.SeaLiceLevel))] = 1.0
         return SparseCat(observations, probs)
     end
 
     # (Optional) under-counting correction like p^Scount_ftc
     # paper uses (W - 0.1) with W in kg
-    p_scount = if mdp.use_underreport
-        η = mdp.beta0_Scount_f + mdp.beta1_Scount*(mdp.mean_fish_weight_kg - mdp.W0)
+    p_scount = if pomdp.use_underreport
+        η = pomdp.beta0_Scount_f + pomdp.beta1_Scount*(pomdp.mean_fish_weight_kg - pomdp.W0)
         logistic(η)
     else
         1.0
@@ -146,16 +146,16 @@ function POMDPs.observation(mdp::SeaLiceMDP, a::Action, s::SeaLiceState)
 
     # NB parameters on TOTAL counts over n_sample fish
     # mean of total counts = n_sample * p_scount * (true lice per fish)
-    μ_total_adult = max(1e-12, mdp.n_sample * p_scount * s.SeaLiceLevel)
-    k = max(1e-9, mdp.n_sample * mdp.rho_nb)  # NB "size" scales with n_sample
+    μ_total_adult = max(1e-12, pomdp.n_sample * p_scount * sp.SeaLiceLevel)
+    k = max(1e-9, pomdp.n_sample * pomdp.rho_nb)  # NB "size" scales with n_sample
     r, p = nb_params_from_mean_k(μ_total_adult, k)
     nb = NegativeBinomial(r, p)
 
     # Build CDF at each grid value (threshold on total counts)
     cdfs = similar(observations, Float64)
     @inbounds for (i, o) in enumerate(observations)
-        adult_threshold = clamp(o.SeaLiceLevel, mdp.sea_lice_bounds...)
-        total_adult_threshold = max(0, floor(Int, mdp.n_sample * adult_threshold))
+        adult_threshold = clamp(o.SeaLiceLevel, pomdp.sea_lice_bounds...)
+        total_adult_threshold = max(0, floor(Int, pomdp.n_sample * adult_threshold))
         ci = cdf(nb, total_adult_threshold)
         if !isfinite(ci)
             @warn "NaN in observation distribution (SeaLicePOMDP)"
@@ -185,7 +185,7 @@ function POMDPs.observation(mdp::SeaLiceMDP, a::Action, s::SeaLiceState)
     if sum(probs) <= 0 || !isfinite(sum(probs))
         # Put all mass on the nearest bin to the mean of the NB distribution
         @warn "Degenerate observation distribution (SeaLicePOMDP)"
-        idx = findmin(abs.([o.SeaLiceLevel - μ_total_adult / mdp.n_sample for o in observations]))[2]
+        idx = findmin(abs.([o.SeaLiceLevel - μ_total_adult / pomdp.n_sample for o in observations]))[2]
         probs .= 0.0
         probs[idx] = 1.0
     else
@@ -198,25 +198,25 @@ end
 # -------------------------
 # Reward
 # -------------------------
-function POMDPs.reward(mdp::SeaLiceMDP, s::SeaLiceState, a::Action, sp::SeaLiceState)
+function POMDPs.reward(pomdp::SeaLicePOMDP, s::SeaLiceState, a::Action)
 
-    λ_trt, λ_reg, λ_bio, λ_health, λ_sea_lice = mdp.reward_lambdas
+    λ_trt, λ_reg, λ_bio, λ_health, λ_sea_lice = pomdp.reward_lambdas
 
     # Treatment cost
     treatment_cost = get_treatment_cost(a)
 
     # Regulatory penalty
-    over_limit = s.SeaLiceLevel > mdp.regulation_limit
+    over_limit = s.SeaLiceLevel > pomdp.regulation_limit
     if (over_limit && a == NoTreatment)
         regulatory_penalty = 1000.0
     else
         regulatory_penalty = 15.0
     end
-    
-    # Lost biomass
+
+    # Lost biomass (not used in this simplified model)
     lost_biomass = 0
 
-    # Fish disease
+    # Fish disease penalty
     fish_disease = get_fish_disease(a) + 100.0 * s.SeaLiceLevel
 
     return - (λ_health * fish_disease + λ_trt * treatment_cost + λ_bio * lost_biomass + λ_reg * regulatory_penalty + λ_sea_lice * s.SeaLiceLevel)
@@ -225,13 +225,13 @@ end
 # -------------------------
 # Initial state
 # -------------------------
-function POMDPs.initialstate(mdp::SeaLiceMDP)
+function POMDPs.initialstate(pomdp::SeaLicePOMDP)
 
     # Get the distribution
-    dist = truncated(Normal(mdp.initial_mean, mdp.adult_sd), mdp.sea_lice_bounds...)
+    dist = truncated(Normal(pomdp.initial_mean, pomdp.adult_sd), pomdp.sea_lice_bounds...)
 
     # Get the states
-    states = POMDPs.states(mdp)
+    states = POMDPs.states(pomdp)
 
     # Calculate the probs using the cdf
     probs = discretize_distribution(dist, states)
