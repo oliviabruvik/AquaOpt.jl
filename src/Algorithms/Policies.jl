@@ -18,29 +18,29 @@ function create_pomdp_mdp(λ, config)
     pomdp_mdp_dir = joinpath(config.experiment_dir, "pomdp_mdp")
     mkpath(pomdp_mdp_dir)
 
-    if config.log_space
+    if config.solver_config.log_space
         pomdp = SeaLiceLogPOMDP(
             lambda=λ,
-            reward_lambdas=config.reward_lambdas,
-            costOfTreatment=config.costOfTreatment,
-            growthRate=config.growthRate,
-            discount_factor=config.discount_factor,
-            discretization_step=config.discretization_step,
-            adult_sd=abs(log(config.raw_space_sampling_sd)),
-            regulation_limit=config.regulation_limit,
-            full_observability_solver=config.full_observability_solver,
+            reward_lambdas=config.solver_config.reward_lambdas,
+            costOfTreatment=config.solver_config.costOfTreatment,
+            growthRate=config.solver_config.growthRate,
+            discount_factor=config.solver_config.discount_factor,
+            discretization_step=config.solver_config.discretization_step,
+            adult_sd=abs(log(config.solver_config.raw_space_sampling_sd)),
+            regulation_limit=config.solver_config.regulation_limit,
+            full_observability_solver=config.solver_config.full_observability_solver,
         )
     else
         pomdp = SeaLicePOMDP(
             lambda=λ,
-            reward_lambdas=config.reward_lambdas,
-            costOfTreatment=config.costOfTreatment,
-            growthRate=config.growthRate,
-            discount_factor=config.discount_factor,
-            discretization_step=config.discretization_step,
-            adult_sd=config.raw_space_sampling_sd,
-            regulation_limit=config.regulation_limit,
-            full_observability_solver=config.full_observability_solver,
+            reward_lambdas=config.solver_config.reward_lambdas,
+            costOfTreatment=config.solver_config.costOfTreatment,
+            growthRate=config.solver_config.growthRate,
+            discount_factor=config.solver_config.discount_factor,
+            discretization_step=config.solver_config.discretization_step,
+            adult_sd=config.solver_config.raw_space_sampling_sd,
+            regulation_limit=config.solver_config.regulation_limit,
+            full_observability_solver=config.solver_config.full_observability_solver,
         )
     end
 

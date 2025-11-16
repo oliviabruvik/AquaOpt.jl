@@ -51,7 +51,7 @@ function plot_heuristic_vs_sarsop_sealice_levels_over_time(parallel_data, config
         legend=:right,
         grid=true,
         ylims=(0, 0.6),
-        xlims=(0, config.steps_per_episode),
+        xlims=(0, config.simulation_config.steps_per_episode),
         size=(1200, 400)  # Wider plot: 1200px wide, 400px tall
     )
     
@@ -72,7 +72,7 @@ function plot_heuristic_vs_sarsop_sealice_levels_over_time(parallel_data, config
             seeds = unique(data_filtered.seed)
 
             # Calculate mean and 95% CI for each time step
-            time_steps = 1:config.steps_per_episode
+            time_steps = 1:config.simulation_config.steps_per_episode
             mean_sealice = Float64[]
             ci_lower = Float64[]
             ci_upper = Float64[]
@@ -397,7 +397,7 @@ function plot_heuristic_vs_sarsop_sealice_levels_over_time_latex(parallel_data, 
         :xlabel => "Time Since Production Start (Weeks)",
         :ylabel => "Avg. Adult Female Sea Lice per Fish",
         :legend_pos => "north east",
-        :xmin => 0, :xmax => config.steps_per_episode,
+        :xmin => 0, :xmax => config.simulation_config.steps_per_episode,
         :ymin => 0, :ymax => 0.6,
         :grid => "both",
         :width => "12cm",
@@ -423,7 +423,7 @@ function plot_heuristic_vs_sarsop_sealice_levels_over_time_latex(parallel_data, 
         try
             data_filtered = filter(row -> row.policy == policy_name, parallel_data)
             seeds = unique(data_filtered.seed)
-            time_steps = 1:config.steps_per_episode
+            time_steps = 1:config.simulation_config.steps_per_episode
 
             mean_sealice, ci_lower, ci_upper = Float64[], Float64[], Float64[]
             for t in time_steps
@@ -472,7 +472,7 @@ function plot_heuristic_vs_sarsop_sealice_levels_over_time_latex(parallel_data, 
     end
 
     # Regulatory line
-    push!(ax, @pgf("\\addplot[white, dashed, thick] coordinates {(1,0.5) ($(config.steps_per_episode),0.5)};"))
+    push!(ax, @pgf("\\addplot[white, dashed, thick] coordinates {(1,0.5) ($(config.simulation_config.steps_per_episode),0.5)};"))
 
     # Legend with correct colors (order: the two policies actually plotted, then Reg. Limit)
     # Add Heuristic (blue)
@@ -602,7 +602,7 @@ function plot_sarsop_policy_action_heatmap(config, λ=0.6)
         for (j, temp) in enumerate(temp_range)
             # Predict next sea lice level using the current state
             pred_adult, pred_motile, pred_sessile = predict_next_abundances(
-                sealice_level, fixed_motile, fixed_sessile, temp, config.location
+                sealice_level, fixed_motile, fixed_sessile, temp, config.solver_config.location
             )
             
             # Create a belief state centered on the predicted level
@@ -697,36 +697,36 @@ function plot_heuristic_policy_action_heatmap(config, λ=0.6)
     
     # Create heuristic policy
     heuristic_config = HeuristicConfig(
-        raw_space_threshold=config.heuristic_threshold,
-        belief_threshold_mechanical=config.heuristic_belief_threshold_mechanical,
-        belief_threshold_thermal=config.heuristic_belief_threshold_thermal,
-        rho=config.heuristic_rho
+        raw_space_threshold=config.solver_config.heuristic_threshold,
+        belief_threshold_mechanical=config.solver_config.heuristic_belief_threshold_mechanical,
+        belief_threshold_thermal=config.solver_config.heuristic_belief_threshold_thermal,
+        rho=config.solver_config.heuristic_rho
     )
     
     # Create POMDP for the heuristic policy
-    if config.log_space
+    if config.solver_config.log_space
         pomdp = SeaLiceLogPOMDP(
             lambda=λ,
-            reward_lambdas=config.reward_lambdas,
-            costOfTreatment=config.costOfTreatment,
-            growthRate=config.growthRate,
-            discount_factor=config.discount_factor,
-            discretization_step=config.discretization_step,
-            adult_sd=abs(log(config.raw_space_sampling_sd)),
-            regulation_limit=config.regulation_limit,
-            full_observability_solver=config.full_observability_solver,
+            reward_lambdas=config.solver_config.reward_lambdas,
+            costOfTreatment=config.solver_config.costOfTreatment,
+            growthRate=config.solver_config.growthRate,
+            discount_factor=config.solver_config.discount_factor,
+            discretization_step=config.solver_config.discretization_step,
+            adult_sd=abs(log(config.solver_config.raw_space_sampling_sd)),
+            regulation_limit=config.solver_config.regulation_limit,
+            full_observability_solver=config.solver_config.full_observability_solver,
         )
     else
         pomdp = SeaLicePOMDP(
             lambda=λ,
-            reward_lambdas=config.reward_lambdas,
-            costOfTreatment=config.costOfTreatment,
-            growthRate=config.growthRate,
-            discount_factor=config.discount_factor,
-            discretization_step=config.discretization_step,
-            adult_sd=config.raw_space_sampling_sd,
-            regulation_limit=config.regulation_limit,
-            full_observability_solver=config.full_observability_solver,
+            reward_lambdas=config.solver_config.reward_lambdas,
+            costOfTreatment=config.solver_config.costOfTreatment,
+            growthRate=config.solver_config.growthRate,
+            discount_factor=config.solver_config.discount_factor,
+            discretization_step=config.solver_config.discretization_step,
+            adult_sd=config.solver_config.raw_space_sampling_sd,
+            regulation_limit=config.solver_config.regulation_limit,
+            full_observability_solver=config.solver_config.full_observability_solver,
         )
     end
     
@@ -756,7 +756,7 @@ function plot_heuristic_policy_action_heatmap(config, λ=0.6)
         for (j, temp) in enumerate(temp_range)
             # Predict next sea lice level using the current state
             pred_adult, pred_motile, pred_sessile = predict_next_abundances(
-                sealice_level, fixed_motile, fixed_sessile, temp, config.location
+                sealice_level, fixed_motile, fixed_sessile, temp, config.solver_config.location
             )
             
             # Create a belief state centered on the predicted level
@@ -934,36 +934,36 @@ function generate_policy_action_data(policy_type, config, λ)
     else  # Heuristic
         # Create heuristic policy
         heuristic_config = HeuristicConfig(
-            raw_space_threshold=config.heuristic_threshold,
-            belief_threshold_mechanical=config.heuristic_belief_threshold_mechanical,
-            belief_threshold_thermal=config.heuristic_belief_threshold_thermal,
-            rho=config.heuristic_rho
+            raw_space_threshold=config.solver_config.heuristic_threshold,
+            belief_threshold_mechanical=config.solver_config.heuristic_belief_threshold_mechanical,
+            belief_threshold_thermal=config.solver_config.heuristic_belief_threshold_thermal,
+            rho=config.solver_config.heuristic_rho
         )
         
         # Create POMDP for the heuristic policy
-        if config.log_space
+        if config.solver_config.log_space
             pomdp = SeaLiceLogPOMDP(
                 lambda=λ,
-                reward_lambdas=config.reward_lambdas,
-                costOfTreatment=config.costOfTreatment,
-                growthRate=config.growthRate,
-                discount_factor=config.discount_factor,
-                discretization_step=config.discretization_step,
-                adult_sd=abs(log(config.raw_space_sampling_sd)),
-                regulation_limit=config.regulation_limit,
-                full_observability_solver=config.full_observability_solver,
+                reward_lambdas=config.solver_config.reward_lambdas,
+                costOfTreatment=config.solver_config.costOfTreatment,
+                growthRate=config.solver_config.growthRate,
+                discount_factor=config.solver_config.discount_factor,
+                discretization_step=config.solver_config.discretization_step,
+                adult_sd=abs(log(config.solver_config.raw_space_sampling_sd)),
+                regulation_limit=config.solver_config.regulation_limit,
+                full_observability_solver=config.solver_config.full_observability_solver,
             )
         else
             pomdp = SeaLicePOMDP(
                 lambda=λ,
-                reward_lambdas=config.reward_lambdas,
-                costOfTreatment=config.costOfTreatment,
-                growthRate=config.growthRate,
-                discount_factor=config.discount_factor,
-                discretization_step=config.discretization_step,
-                adult_sd=config.raw_space_sampling_sd,
-                regulation_limit=config.regulation_limit,
-                full_observability_solver=config.full_observability_solver,
+                reward_lambdas=config.solver_config.reward_lambdas,
+                costOfTreatment=config.solver_config.costOfTreatment,
+                growthRate=config.solver_config.growthRate,
+                discount_factor=config.solver_config.discount_factor,
+                discretization_step=config.solver_config.discretization_step,
+                adult_sd=config.solver_config.raw_space_sampling_sd,
+                regulation_limit=config.solver_config.regulation_limit,
+                full_observability_solver=config.solver_config.full_observability_solver,
             )
         end
         policy = HeuristicPolicy(pomdp, heuristic_config)
@@ -973,9 +973,9 @@ function generate_policy_action_data(policy_type, config, λ)
         for (j, temp) in enumerate(temp_range)
             # Predict next sea lice level using the current state
             pred_adult, pred_motile, pred_sessile = predict_next_abundances(
-                sealice_level, fixed_motile, fixed_sessile, temp, config.location
+                sealice_level, fixed_motile, fixed_sessile, temp, config.solver_config.location
             )
-            
+
             # Create a belief state centered on the predicted level
             if pomdp isa SeaLiceLogPOMDP
                 pred_adult = log(max(pred_adult, 1e-6))
@@ -1090,7 +1090,7 @@ function plot_combined_treatment_probability_over_time(parallel_data, config)
         seeds = unique(data_filtered.seed)
         
         # Calculate treatment probabilities for each treatment type and time step
-        time_steps = 1:config.steps_per_episode
+        time_steps = 1:config.simulation_config.steps_per_episode
         treatment_probs = Dict{Action, Vector{Float64}}()
         
         for treatment_type in treatment_types
@@ -1133,10 +1133,10 @@ function plot_combined_treatment_probability_over_time(parallel_data, config)
         # Create subplot for this policy
         if policy_idx == 1
             # SARSOP subplot (left) - show ylabel
-            push!(ax, @pgf("\\nextgroupplot[title=$(policy_titles[policy_idx]), xlabel=Time (Weeks), ylabel=Treatment Probability, xmin=1, xmax=$(config.steps_per_episode), ymin=0, ymax=1.0, title style={color=white}, xlabel style={color=white}, ylabel style={color=white}, tick label style={color=white}, axis background/.style={fill=none}, legend style={fill=none,draw=none,text=white}]"))
+            push!(ax, @pgf("\\nextgroupplot[title=$(policy_titles[policy_idx]), xlabel=Time (Weeks), ylabel=Treatment Probability, xmin=1, xmax=$(config.simulation_config.steps_per_episode), ymin=0, ymax=1.0, title style={color=white}, xlabel style={color=white}, ylabel style={color=white}, tick label style={color=white}, axis background/.style={fill=none}, legend style={fill=none,draw=none,text=white}]"))
         else
             # Heuristic subplot (right) - no ylabel, shared y-axis
-            push!(ax, @pgf("\\nextgroupplot[title=$(policy_titles[policy_idx]), xlabel=Time (Weeks), xmin=1, xmax=$(config.steps_per_episode), ymin=0, ymax=1.0, title style={color=white}, xlabel style={color=white}, tick label style={color=white}, axis background/.style={fill=none}, legend style={fill=none,draw=none,text=white}]"))
+            push!(ax, @pgf("\\nextgroupplot[title=$(policy_titles[policy_idx]), xlabel=Time (Weeks), xmin=1, xmax=$(config.simulation_config.steps_per_episode), ymin=0, ymax=1.0, title style={color=white}, xlabel style={color=white}, tick label style={color=white}, axis background/.style={fill=none}, legend style={fill=none,draw=none,text=white}]"))
         end
         
         # Plot each treatment type

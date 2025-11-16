@@ -108,7 +108,7 @@ function main(;first_step_flag="solve", log_space=true, experiment_name="exp", m
     parallel_data = simulate_all_policies(algorithms, config)
 
     # If we are simulating on high fidelity model, we want to evaluate the simulation results
-    if config.high_fidelity_sim
+    if config.simulation_config.high_fidelity_sim
         for algo in algorithms
             histories = extract_simulation_histories(config, algo, parallel_data)
             evaluate_simulation_results(config, algo, histories)
@@ -158,19 +158,24 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
     @info "Setting up experiment configuration for experiment: $exp_name"
 
     if mode == "light"
-        config = ExperimentConfig(
-            num_episodes=1000,
-            steps_per_episode=104,
+        solver_cfg = SolverConfig(
             log_space=log_space,
-            ekf_filter=ekf_filter,
-            experiment_name=exp_name,
-            verbose=false,
-            step_through=false,
-            # reward_lambdas=[0.7, 0.2, 0.1, 0.05, 0.1], # [treatment, regulatory, biomass, health, sea lice level]
             reward_lambdas=[0.7, 0.2, 0.1, 0.1, 0.8], # [treatment, regulatory, biomass, health, sea lice level]
             sarsop_max_time=5.0,
             VI_max_iterations=10,
             QMDP_max_iterations=10,
+        )
+        sim_cfg = SimulationConfig(
+            num_episodes=1000,
+            steps_per_episode=104,
+            ekf_filter=ekf_filter,
+            verbose=false,
+            step_through=false,
+        )
+        config = ExperimentConfig(
+            solver_config=solver_cfg,
+            simulation_config=sim_cfg,
+            experiment_name=exp_name,
             policies_dir = joinpath("NorthernNorway", "policies"),
             simulations_dir = joinpath("NorthernNorway", "simulation_histories"),
             results_dir = joinpath("NorthernNorway", "avg_results"),
@@ -178,81 +183,105 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
             experiment_dir = joinpath("NorthernNorway"),
         )
     elseif mode == "VIdebug"
-        config = ExperimentConfig(
-            num_episodes=1000,
-            steps_per_episode=104,
+        solver_cfg = SolverConfig(
             log_space=log_space,
-            ekf_filter=ekf_filter,
-            experiment_name=exp_name,
-            verbose=false,
-            step_through=false,
             reward_lambdas=[0.7, 0.2, 0.1, 0.1, 0.8], # [treatment, regulatory, biomass, health, sea lice]
             sarsop_max_time=500.0,
             VI_max_iterations=100,
             QMDP_max_iterations=100,
             discount_factor = 0.95,
-            high_fidelity_sim = false, # Toggles whether we simulate policies on sim (true) or solver (false) POMDP
             full_observability_solver = false, # Toggles whether we have full observability in the observation function or not (false). Pairs with high_fidelity_sim = false.
         )
-    elseif mode == "debug"
-        config = ExperimentConfig(
-            num_episodes=10,
-            steps_per_episode=20,
-            log_space=log_space,
+        sim_cfg = SimulationConfig(
+            num_episodes=1000,
+            steps_per_episode=104,
             ekf_filter=ekf_filter,
-            experiment_name=exp_name,
             verbose=false,
             step_through=false,
+            high_fidelity_sim = false, # Toggles whether we simulate policies on sim (true) or solver (false) POMDP
+        )
+        config = ExperimentConfig(
+            solver_config=solver_cfg,
+            simulation_config=sim_cfg,
+            experiment_name=exp_name,
+        )
+    elseif mode == "debug"
+        solver_cfg = SolverConfig(
+            log_space=log_space,
             reward_lambdas=[0.7, 0.2, 0.1, 0.1, 0.8], # [treatment, regulatory, biomass, health, sea lice]
             sarsop_max_time=5.0,
             VI_max_iterations=10,
             QMDP_max_iterations=10,
             discount_factor = 0.95,
             location = "north", # "north", "west", or "south"
-            high_fidelity_sim = true, # Toggles whether we simulate policies on sim (true) or solver (false) POMDP
             full_observability_solver = false, # Toggles whether we have full observability in the observation function or not (false). Pairs with high_fidelity_sim = false.
         )
-    elseif mode == "fullobs"
-        config = ExperimentConfig(
+        sim_cfg = SimulationConfig(
             num_episodes=10,
-            steps_per_episode=104,
-            log_space=log_space,
+            steps_per_episode=20,
             ekf_filter=ekf_filter,
-            experiment_name=exp_name,
             verbose=false,
             step_through=false,
+            high_fidelity_sim = true, # Toggles whether we simulate policies on sim (true) or solver (false) POMDP
+        )
+        config = ExperimentConfig(
+            solver_config=solver_cfg,
+            simulation_config=sim_cfg,
+            experiment_name=exp_name,
+        )
+    elseif mode == "fullobs"
+        solver_cfg = SolverConfig(
+            log_space=log_space,
             reward_lambdas=[0.7, 0.2, 0.1, 0.1, 0.8], # [treatment, regulatory, biomass, health, sea lice]
             sarsop_max_time=5.0,
             VI_max_iterations=10,
             QMDP_max_iterations=10,
             discount_factor = 0.95,
-            high_fidelity_sim = false, # Toggles whether we simulate policies on sim (true) or solver (false) POMDP
             full_observability_solver = false, # Toggles whether we have full observability in the observation function or not (false). Pairs with high_fidelity_sim = false.
         )
-    elseif mode == "paper"
-        config = ExperimentConfig(
-            num_episodes=1000,
+        sim_cfg = SimulationConfig(
+            num_episodes=10,
             steps_per_episode=104,
-            log_space=log_space,
             ekf_filter=ekf_filter,
-            experiment_name=exp_name,
             verbose=false,
             step_through=false,
+            high_fidelity_sim = false, # Toggles whether we simulate policies on sim (true) or solver (false) POMDP
+        )
+        config = ExperimentConfig(
+            solver_config=solver_cfg,
+            simulation_config=sim_cfg,
+            experiment_name=exp_name,
+        )
+    elseif mode == "paper"
+        solver_cfg = SolverConfig(
+            log_space=log_space,
             reward_lambdas=[0.7, 0.2, 0.1, 0.1, 0.8], # [treatment, regulatory, biomass, health, sea lice]
             sarsop_max_time=1000.0,
             VI_max_iterations=500,
             QMDP_max_iterations=500,
             discount_factor = 0.95,
             location = "south",
+        )
+        sim_cfg = SimulationConfig(
+            num_episodes=1000,
+            steps_per_episode=104,
+            ekf_filter=ekf_filter,
+            verbose=false,
+            step_through=false,
             high_fidelity_sim = false,
+        )
+        config = ExperimentConfig(
+            solver_config=solver_cfg,
+            simulation_config=sim_cfg,
+            experiment_name=exp_name,
         )
     end
         
     heuristic_config = HeuristicConfig(
-        raw_space_threshold=config.heuristic_threshold,
-        belief_threshold_mechanical=config.heuristic_belief_threshold_mechanical,
-        belief_threshold_thermal=config.heuristic_belief_threshold_thermal,
-        rho=config.heuristic_rho
+        raw_space_threshold=config.solver_config.heuristic_threshold,
+        belief_threshold_mechanical=config.solver_config.heuristic_belief_threshold_mechanical,
+        belief_threshold_thermal=config.solver_config.heuristic_belief_threshold_thermal,
+        rho=config.solver_config.heuristic_rho
     )
 
     return config, heuristic_config
@@ -264,18 +293,18 @@ end
 # ----------------------------
 function define_algorithms(config, heuristic_config)
 
-    native_sarsop_solver = NativeSARSOP.SARSOPSolver(max_time=config.sarsop_max_time) #, verbose=false)
-    
+    native_sarsop_solver = NativeSARSOP.SARSOPSolver(max_time=config.solver_config.sarsop_max_time) #, verbose=false)
+
     nus_sarsop_solver = SARSOP.SARSOPSolver(
-        timeout=config.sarsop_max_time,
+        timeout=config.solver_config.sarsop_max_time,
         verbose=false,
         policy_filename=joinpath(config.policies_dir, "NUS_SARSOP_Policy/policy.out"),
         pomdp_filename=joinpath(config.experiment_dir, "pomdp_mdp/pomdp.pomdpx")
     )
-    
-    vi_solver = ValueIterationSolver(max_iterations=config.VI_max_iterations, belres=1e-10, verbose=false)
 
-    qmdp_solver = QMDPSolver(max_iterations=config.QMDP_max_iterations)
+    vi_solver = ValueIterationSolver(max_iterations=config.solver_config.VI_max_iterations, belres=1e-10, verbose=false)
+
+    qmdp_solver = QMDPSolver(max_iterations=config.solver_config.QMDP_max_iterations)
 
     algorithms = [
         Algorithm(solver_name="NeverTreat_Policy"),
@@ -348,7 +377,7 @@ export plos_one_algo_sealice_levels_over_time
 export plos_one_treatment_distribution_comparison
 
 # Configuration types
-export ExperimentConfig, HeuristicConfig, Algorithm, LocationParams, get_location_params
+export ExperimentConfig, SolverConfig, SimulationConfig, HeuristicConfig, Algorithm, LocationParams, get_location_params
 
 # Utility functions
 export predict_next_abundances, get_temperature

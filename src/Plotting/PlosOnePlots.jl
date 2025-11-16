@@ -161,7 +161,7 @@ function plos_one_sealice_levels_over_time(parallel_data, config; show_ci=true)
         :ylabel_style => "color=black",
         :tick_label_style => "color=black",
         :xmin => 0,
-        :xmax => config.steps_per_episode,
+        :xmax => config.simulation_config.steps_per_episode,
         :ymin => 0,
         :ymax => 1,
         "axis background/.style" => Options("fill" => "white"),
@@ -200,7 +200,7 @@ function plos_one_sealice_levels_over_time(parallel_data, config; show_ci=true)
             seeds = unique(data_filtered.seed)
 
             # Calculate mean and 95% CI for each time step
-            time_steps = 1:config.steps_per_episode
+            time_steps = 1:config.simulation_config.steps_per_episode
             mean_sealice = Float64[]
             ci_lower = Float64[]
             ci_upper = Float64[]
@@ -271,7 +271,7 @@ function plos_one_sealice_levels_over_time(parallel_data, config; show_ci=true)
     end
     
     # Add regulatory limit line
-    push!(ax, @pgf("\\addplot[black, densely dashed, line width=1pt] coordinates {(0,0.5) ($(config.steps_per_episode),0.5)};"))
+    push!(ax, @pgf("\\addplot[black, densely dashed, line width=1pt] coordinates {(0,0.5) ($(config.simulation_config.steps_per_episode),0.5)};"))
     push!(ax, @pgf("\\addlegendentry{Reg. Limit}"))
     
     # Save the plot
@@ -299,7 +299,7 @@ function plos_one_combined_treatment_probability_over_time(parallel_data, config
         :ylabel_style => "color=black",
         :tick_label_style => "color=black",
         :xmin => 0,
-        :xmax => config.steps_per_episode,
+        :xmax => config.simulation_config.steps_per_episode,
         :ymin => 0,
         :ymax => 1.0,
         "axis background/.style" => Options("fill" => "white"),
@@ -342,7 +342,7 @@ function plos_one_combined_treatment_probability_over_time(parallel_data, config
             seeds = unique(data_filtered.seed)
             
             # Calculate treatment probabilities over time
-            time_steps = 1:config.steps_per_episode
+            time_steps = 1:config.simulation_config.steps_per_episode
             treatment_probs = Float64[]
             
             for t in time_steps
@@ -428,7 +428,7 @@ function plos_one_sarsop_dominant_action(parallel_data, config, λ=0.6)
         for (j, temp) in enumerate(temp_range)
             # Predict next sea lice level using the current state
             pred_adult, pred_motile, pred_sessile = predict_next_abundances(
-                sealice_level, fixed_motile, fixed_sessile, temp, config.location
+                sealice_level, fixed_motile, fixed_sessile, temp, config.solver_config.location
             )
             
             # Create a belief state centered on the predicted level
@@ -846,7 +846,7 @@ function plos_one_algo_sealice_levels_over_time(config, algo_name, lambda_value)
     histories_lambda = histories[lambda_value]
 
     # Calculate mean and 95% CI for each time step for all sea lice stages
-    time_steps = 1:config.steps_per_episode
+    time_steps = 1:config.simulation_config.steps_per_episode
     mean_adult = Float64[]
     mean_sessile = Float64[]
     mean_motile = Float64[]
@@ -915,7 +915,7 @@ function plos_one_algo_sealice_levels_over_time(config, algo_name, lambda_value)
         :ylabel_style => "color=black",
         :tick_label_style => "color=black",
         :xmin => 0,
-        :xmax => config.steps_per_episode,
+        :xmax => config.simulation_config.steps_per_episode,
         :ymin => 0,
         "axis background/.style" => Options("fill" => "white"),
         "legend style" => Options(

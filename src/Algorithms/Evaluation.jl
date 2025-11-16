@@ -46,7 +46,7 @@ function evaluate_simulation_results(config, algorithm, histories)
 
         episode_costs, episode_abundances, episode_rewards = [], [], []
 
-        for episode in 1:config.num_episodes
+        for episode in 1:config.simulation_config.num_episodes
 
             # Get episode history
             episode_history = histories_lambda[episode]
@@ -57,7 +57,7 @@ function evaluate_simulation_results(config, algorithm, histories)
             rewards = collect(reward_hist(episode_history))
 
             # Get total treatment cost
-            episode_cost = sum(a == Treatment for a in actions) * config.costOfTreatment
+            episode_cost = sum(a == Treatment for a in actions) * config.solver_config.costOfTreatment
             
             # Get mean abundance
             episode_abundance = mean(s.SeaLiceLevel for s in states)
@@ -101,7 +101,7 @@ function extract_simulation_histories(config, algorithm, parallel_data)
 
         episode_histories = Vector{Any}()
 
-        for episode in 1:config.num_episodes
+        for episode in 1:config.simulation_config.num_episodes
 
             # Get histories for this episode
             data_episode = filter(row -> row.episode_number == episode, data_lambda)
@@ -211,7 +211,7 @@ function extract_reward_metrics(data, config)
         # Add to dataframe copy
         processed_data.treatment_cost[i] = sum(get_treatment_cost(a) for a in actions)
         processed_data.treatments[i] = treatments
-        processed_data.num_regulatory_penalties[i] = sum(s.Adult > config.regulation_limit ? 1.0 : 0.0 for s in states)
+        processed_data.num_regulatory_penalties[i] = sum(s.Adult > config.solver_config.regulation_limit ? 1.0 : 0.0 for s in states)
         processed_data.lost_biomass_1000kg[i] = lost_biomass_1000kg
         processed_data.fish_disease[i] = fish_disease
         processed_data.mean_adult_sea_lice_level[i] = mean(s.Adult for s in states)
@@ -409,7 +409,7 @@ function print_reward_metrics_for_vi_policy(data, config)
          # Add to dataframe
          data.treatment_cost[i] = sum(get_treatment_cost(a) for a in actions)
          data.treatments[i] = treatments
-         data.num_regulatory_penalties[i] = sum(s.SeaLiceLevel > config.regulation_limit ? 1.0 : 0.0 for s in states)
+         data.num_regulatory_penalties[i] = sum(s.SeaLiceLevel > config.solver_config.regulation_limit ? 1.0 : 0.0 for s in states)
          data.mean_rewards_across_sims[i] = mean(rewards)
      end
 

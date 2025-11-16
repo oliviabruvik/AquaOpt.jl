@@ -244,7 +244,7 @@ function plot_policy_sealice_levels_over_time(config, lambda_value)
             histories_lambda = histories[lambda_value]
             
             # Calculate mean and 95% CI for each time step
-            time_steps = 1:config.steps_per_episode
+            time_steps = 1:config.simulation_config.steps_per_episode
             mean_sealice = Float64[]
             ci_lower = Float64[]
             ci_upper = Float64[]
@@ -330,7 +330,7 @@ function plot_algo_sealice_levels_over_time(config, algo_name, lambda_value)
         histories_lambda = histories[lambda_value]
         
         # Calculate mean and 95% CI for each time step for all sea lice stages
-        time_steps = 1:config.steps_per_episode
+        time_steps = 1:config.simulation_config.steps_per_episode
         mean_adult = Float64[]
         mean_sessile = Float64[]
         mean_motile = Float64[]
@@ -452,7 +452,7 @@ function plot_algo_adult_predicted_over_time(config, algo_name, lambda_value)
         histories_lambda = histories[lambda_value]
         
         # Calculate mean and 95% CI for each time step for adult and predicted
-        time_steps = 1:config.steps_per_episode
+        time_steps = 1:config.simulation_config.steps_per_episode
         mean_adult = Float64[]
         mean_predicted = Float64[]
         
@@ -571,7 +571,7 @@ function plot_policy_treatment_cost_over_time(config, lambda_value)
             histories_lambda = histories[lambda_value]
             
             # Calculate mean treatment probability and 95% CI for each time step
-            time_steps = 1:config.steps_per_episode
+            time_steps = 1:config.simulation_config.steps_per_episode
             mean_treatment_prob = Float64[]
             ci_lower = Float64[]
             ci_upper = Float64[]
@@ -669,7 +669,7 @@ function plot_policy_actual_treatment_cost_over_time(config, lambda_value)
             histories_lambda = histories[lambda_value]
             
             # Calculate mean treatment cost and 95% CI for each time step
-            time_steps = 1:config.steps_per_episode
+            time_steps = 1:config.simulation_config.steps_per_episode
             mean_treatment_cost = Float64[]
             ci_lower = Float64[]
             ci_upper = Float64[]
@@ -681,7 +681,7 @@ function plot_policy_actual_treatment_cost_over_time(config, lambda_value)
                     actions = collect(action_hist(episode_history))
                     if t <= length(actions)
                         # Treatment cost: costOfTreatment if Treatment, 0 if NoTreatment
-                        treatment_cost = actions[t] == Treatment ? config.costOfTreatment : 0.0
+                        treatment_cost = actions[t] == Treatment ? config.solver_config.costOfTreatment : 0.0
                         push!(step_costs, treatment_cost)
                     end
                 end
@@ -767,7 +767,7 @@ function plot_policy_treatment_probability_over_time(config, lambda_value)
             histories_lambda = histories[lambda_value]
             
             # Calculate mean treatment probability and 95% CI for each time step
-            time_steps = 1:config.steps_per_episode
+            time_steps = 1:config.simulation_config.steps_per_episode
             mean_treatment_prob = Float64[]
             ci_lower = Float64[]
             ci_upper = Float64[]

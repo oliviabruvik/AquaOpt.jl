@@ -105,10 +105,10 @@ function setup_experiment_configs(experiment_name, log_space, mode="light")
     end
         
     heuristic_config = HeuristicConfig(
-        raw_space_threshold=config.heuristic_threshold,
-        belief_threshold_mechanical=config.heuristic_belief_threshold_mechanical,
-        belief_threshold_thermal=config.heuristic_belief_threshold_thermal,
-        rho=config.heuristic_rho
+        raw_space_threshold=config.solver_config.heuristic_threshold,
+        belief_threshold_mechanical=config.solver_config.heuristic_belief_threshold_mechanical,
+        belief_threshold_thermal=config.solver_config.heuristic_belief_threshold_thermal,
+        rho=config.solver_config.heuristic_rho
     )
 
     return config, heuristic_config
@@ -121,15 +121,15 @@ end
 function define_algorithms(config, heuristic_config)
 
     @info "Defining solvers"
-    native_sarsop_solver = NativeSARSOP.SARSOPSolver(max_time=config.sarsop_max_time, verbose=false)
+    native_sarsop_solver = NativeSARSOP.SARSOPSolver(max_time=config.solver_config.sarsop_max_time, verbose=false)
     nus_sarsop_solver = SARSOP.SARSOPSolver(
-        timeout=config.sarsop_max_time,
+        timeout=config.solver_config.sarsop_max_time,
         verbose=false,
         policy_filename=joinpath(config.policies_dir, "NUS_SARSOP_Policy/policy.out"),
         pomdp_filename=joinpath(config.experiment_dir, "pomdp_mdp/pomdp.pomdpx")
     )
-    vi_solver = ValueIterationSolver(max_iterations=config.VI_max_iterations)
-    qmdp_solver = QMDPSolver(max_iterations=config.QMDP_max_iterations)
+    vi_solver = ValueIterationSolver(max_iterations=config.solver_config.VI_max_iterations)
+    qmdp_solver = QMDPSolver(max_iterations=config.solver_config.QMDP_max_iterations)
 
     @info "Defining algorithms"
     algorithms = [

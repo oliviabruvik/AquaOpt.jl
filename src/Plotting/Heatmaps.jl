@@ -29,7 +29,7 @@ function plot_treatment_heatmap(algorithm, config)
         @load policy_file_path policy pomdp mdp
 
         # Create state space grid
-        if config.log_space
+        if config.solver_config.log_space
             states = [SeaLiceLogState(x) for x in pomdp.sea_lice_range]
             if y_vals === nothing
                 y_vals = [exp(s.SeaLiceLevel) for s in states]  # Convert back to original space for y-axis
