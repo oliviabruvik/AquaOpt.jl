@@ -86,6 +86,8 @@ function generate_mdp_pomdp_policies(algorithm, config)
         policy_pomdp_mdp_filename = "policy_pomdp_mdp_$(λ)_lambda"
         @save joinpath(policies_dir, "$(policy_pomdp_mdp_filename).jld2") policy pomdp mdp
         #@info "Saved policy, pomdp, and mdp to file $(joinpath(policies_dir, "$(policy_pomdp_mdp_filename).jld2"))"
+
+        return policy, pomdp, mdp
     end
 end
 

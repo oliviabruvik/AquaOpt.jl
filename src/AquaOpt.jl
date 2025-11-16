@@ -107,6 +107,8 @@ function main(;first_step_flag="solve", log_space=true, experiment_name="exp", m
     @info "Simulating policies"
     parallel_data = simulate_all_policies(algorithms, config)
 
+    print(names(parallel_data))
+
     # If we are simulating on high fidelity model, we want to evaluate the simulation results
     if config.high_fidelity_sim
         for algo in algorithms
@@ -125,7 +127,11 @@ function main(;first_step_flag="solve", log_space=true, experiment_name="exp", m
     display_reward_metrics(processed_data, config, false)
 
     # Plot the results
-    # plot_plos_one_plots(parallel_data, config)
+    plot_plos_one_plots(processed_data, config)
+
+    # Other plots
+    plot_parallel_plots(processed_data, config)
+    plot_results(algorithms, config)
 
     # Log experiment configuration in experiments.csv file with all experiments
     @info "Saved experiment configuration to $(config.experiment_dir)/config/experiment_config.jld2"
@@ -306,8 +312,8 @@ if abspath(PROGRAM_FILE) == @__FILE__
     end
 
     @info "Running with mode: $mode_flag, log_space: $log_space_flag, experiment_name: $experiment_name_flag"
-    # main(first_step_flag=first_step_flag, log_space=log_space_flag, experiment_name=experiment_name_flag, mode=mode_flag)
-    run_experiments(mode_flag)
+    main(first_step_flag=first_step_flag, log_space=log_space_flag, experiment_name=experiment_name_flag, mode=mode_flag)
+    #run_experiments(mode_flag)
 end
 
 # -------------------------
@@ -333,6 +339,15 @@ export plot_treatment_heatmap, plot_simulation_treatment_heatmap
 export plot_beliefs_over_time, plot_beliefs_over_time_plotsjl
 export plot_sealice_levels_over_time
 export plot_policy_sealice_levels_over_time, plot_policy_treatment_cost_over_time
+
+export plos_one_plot_kalman_filter_belief_trajectory
+export plos_one_sealice_levels_over_time
+export plos_one_combined_treatment_probability_over_time
+export plos_one_sarsop_dominant_action
+export plot_kalman_filter_trajectory_with_uncertainty
+export plot_kalman_filter_belief_trajectory_two_panel
+export plos_one_algo_sealice_levels_over_time
+export plos_one_treatment_distribution_comparison
 
 # Configuration types
 export ExperimentConfig, HeuristicConfig, Algorithm

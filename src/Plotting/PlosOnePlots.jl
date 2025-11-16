@@ -516,21 +516,6 @@ end
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ----------------------------
 # Kalman Filter Trajectory with 3σ Confidence Band
 # Shows ground truth, noisy observations, KF estimate, and 3σ uncertainty
@@ -608,27 +593,25 @@ function plot_kalman_filter_trajectory_with_uncertainty(data, algo_name, config,
         valid_errors = estimation_error[valid_indices]
         valid_upper = error_upper_3sigma[valid_indices]
         valid_lower = error_lower_3sigma[valid_indices]
-        
+
         # Create coordinate strings with valid data only
         error_coords = join(["($(t), $(valid_errors[j]))" for (j, t) in enumerate(valid_time_steps)], " ")
         upper_coords = join(["($(t), $(valid_upper[j]))" for (j, t) in enumerate(valid_time_steps)], " ")
         lower_coords = join(["($(t), $(valid_lower[j]))" for (j, t) in enumerate(valid_time_steps)], " ")
-        
+
         # Add the 3σ confidence band fill
-        push!(ax, @pgf("\\addplot[name path=upper3sigma, blue, mark=none, line width=0.5pt] coordinates {$(upper_coords)};"))
-        push!(ax, @pgf("\\addplot[name path=lower3sigma, blue, mark=none, line width=0.5pt] coordinates {$(lower_coords)};"))
+        push!(ax, @pgf("\\addplot[name path=upper3sigma, blue, mark=none, line width=0.5pt, forget plot] coordinates {$(upper_coords)};"))
+        push!(ax, @pgf("\\addplot[name path=lower3sigma, blue, mark=none, line width=0.5pt, forget plot] coordinates {$(lower_coords)};"))
         push!(ax, @pgf("\\addplot[blue, fill opacity=0.2] fill between[of=upper3sigma and lower3sigma];"))
-        
+        push!(ax, @pgf("\\addlegendentry{3σ Uncertainty Band}"))
+
         # Add the estimation error line (should be close to zero for good KF performance)
         push!(ax, @pgf("\\addplot[red, mark=none, line width=1.5pt] coordinates {$(error_coords)};"))
+        push!(ax, @pgf("\\addlegendentry{Estimation Error}"))
     end
-    
+
     # Add zero reference line
     push!(ax, @pgf("\\addplot[black, mark=none, line width=1pt, dashed] coordinates {(0, 0) ($(size(belief_means, 1)), 0)};"))
-    
-    # Add legend
-    push!(ax, @pgf("\\addlegendentry{Estimation Error}"))
-    push!(ax, @pgf("\\addlegendentry{3σ Uncertainty Band}"))
     push!(ax, @pgf("\\addlegendentry{Zero Reference}"))
     
     # Save the plot
@@ -732,7 +715,7 @@ function plot_kalman_filter_belief_trajectory_two_panel(data, algo_name, config,
 
     # --- TOP: levels ---------------------------------------------------------
     ax1 = @pgf Axis(Options(
-        "title" => "Kalman Belief vs. True & Observed (Adult Female Lice)",
+        "title" => "Kalman Belief vs. True and Observed (Adult Female Lice)",
         "xlabel" => "Weeks since production start",
         "ylabel" => "Avg. adult female lice / fish",
         "xmin" => 0,
@@ -743,7 +726,7 @@ function plot_kalman_filter_belief_trajectory_two_panel(data, algo_name, config,
             "draw" => "black",
             "fill" => "white",
             "font" => "\\scriptsize",
-            "at" => "{(0.02,0.98)}", 
+            "at" => "{(0.02,0.98)}",
             "anchor" => "north west",
         ),
         "tick label style" => "{/pgf/number format/fixed}",
@@ -751,8 +734,8 @@ function plot_kalman_filter_belief_trajectory_two_panel(data, algo_name, config,
     ))
 
     # 1σ band
-    push!(ax1, @pgf("\\addplot[name path=upper, mark=none, line width=0.4pt] coordinates {$(coords(tμ, hiv))};"))
-    push!(ax1, @pgf("\\addplot[name path=lower, mark=none, line width=0.4pt] coordinates {$(coords(tμ, lov))};"))
+    push!(ax1, @pgf("\\addplot[name path=upper, mark=none, line width=0.4pt, forget plot] coordinates {$(coords(tμ, hiv))};"))
+    push!(ax1, @pgf("\\addplot[name path=lower, mark=none, line width=0.4pt, forget plot] coordinates {$(coords(tμ, lov))};"))
     push!(ax1, @pgf("\\addplot[fill opacity=0.25] fill between[of=upper and lower];"))
     push!(ax1, @pgf("\\addlegendentry{Belief ±1σ}"))
 
@@ -801,18 +784,17 @@ function plot_kalman_filter_belief_trajectory_two_panel(data, algo_name, config,
             "draw" => "black",
             "fill" => "white",
             "font" => "\\scriptsize",
-            "at" => "{(0.02,0.98)}", 
+            "at" => "{(0.02,0.98)}",
             "anchor" => "north west",
         ),
-        "yzero line" => "true",
         "tick label style" => "{/pgf/number format/fixed}",
         "xmin" => 0,
     ))
 
     if !isempty(tr)
         # residual band (same σ)
-        push!(ax2, @pgf("\\addplot[name path=rupper, mark=none, line width=0.4pt] coordinates {$(coords(tr, μr .+ sr))};"))
-        push!(ax2, @pgf("\\addplot[name path=rlower, mark=none, line width=0.4pt] coordinates {$(coords(tr, μr .- sr))};"))
+        push!(ax2, @pgf("\\addplot[name path=rupper, mark=none, line width=0.4pt, forget plot] coordinates {$(coords(tr, μr .+ sr))};"))
+        push!(ax2, @pgf("\\addplot[name path=rlower, mark=none, line width=0.4pt, forget plot] coordinates {$(coords(tr, μr .- sr))};"))
         push!(ax2, @pgf("\\addplot[fill opacity=0.25] fill between[of=rupper and rlower];"))
         push!(ax2, @pgf("\\addlegendentry{Residual ±1σ}"))
 
@@ -821,9 +803,9 @@ function plot_kalman_filter_belief_trajectory_two_panel(data, algo_name, config,
         push!(ax2, @pgf("\\addlegendentry{Residual mean}"))
     end
 
-    # Zero line is already drawn via yzero line, but add a legend entry explicitly:
+    # Zero reference line
     push!(ax2, @pgf("\\addplot[black!50, densely dashed] coordinates {(0,0) ($(max_time),0)};"))
-    push!(ax2, @pgf("\\addlegendentry{Zero (actual baseline)}"))
+    push!(ax2, @pgf("\\addlegendentry{Zero reference}"))
 
     # Repeat treatment markers faintly along top for context
     if !isempty(treat_idx)
@@ -846,4 +828,252 @@ function plot_kalman_filter_belief_trajectory_two_panel(data, algo_name, config,
     PGFPlotsX.save(out1, gp)
     PGFPlotsX.save(out2, gp)
     return gp
+end
+
+
+# ----------------------------
+# Shows Adult, Sessile, Motile, and Predicted sea lice levels over time with 95% CI
+# ----------------------------
+function plos_one_algo_sealice_levels_over_time(config, algo_name, lambda_value)
+
+    policy_name = algo_name
+
+    # Load the results from the JLD2 file
+    @load joinpath(config.results_dir, "$(policy_name)_avg_results.jld2") avg_results
+    @load joinpath(config.simulations_dir, "$(policy_name)", "$(policy_name)_histories.jld2") histories
+
+    # Get histories for this lambda
+    histories_lambda = histories[lambda_value]
+
+    # Calculate mean and 95% CI for each time step for all sea lice stages
+    time_steps = 1:config.steps_per_episode
+    mean_adult = Float64[]
+    mean_sessile = Float64[]
+    mean_motile = Float64[]
+    mean_predicted = Float64[]
+
+    ci_lower_adult = Float64[]
+    ci_upper_adult = Float64[]
+    ci_lower_sessile = Float64[]
+    ci_upper_sessile = Float64[]
+    ci_lower_motile = Float64[]
+    ci_upper_motile = Float64[]
+    ci_lower_predicted = Float64[]
+    ci_upper_predicted = Float64[]
+
+    for t in time_steps
+        # Extract sea lice levels at time step t from all episodes
+        step_adult = Float64[]
+        step_sessile = Float64[]
+        step_motile = Float64[]
+        step_predicted = Float64[]
+
+        for episode_history in histories_lambda
+            states = collect(state_hist(episode_history))
+            observations = collect(observation_hist(episode_history))
+
+            if t <= length(states) && t <= length(observations)
+                push!(step_adult, states[t].Adult)
+                push!(step_sessile, states[t].Sessile)
+                push!(step_motile, states[t].Motile)
+                push!(step_predicted, observations[t].SeaLiceLevel)
+            end
+        end
+
+        # Calculate mean and 95% CI for each stage
+        for (step_data, mean_vec, ci_lower_vec, ci_upper_vec) in [
+            (step_adult, mean_adult, ci_lower_adult, ci_upper_adult),
+            (step_sessile, mean_sessile, ci_lower_sessile, ci_upper_sessile),
+            (step_motile, mean_motile, ci_lower_motile, ci_upper_motile),
+            (step_predicted, mean_predicted, ci_lower_predicted, ci_upper_predicted)
+        ]
+            if !isempty(step_data)
+                mean_level = mean(step_data)
+                std_level = std(step_data)
+                n_episodes = length(step_data)
+                se_level = std_level / sqrt(n_episodes)  # Standard error
+                ci_margin = 1.96 * se_level  # 95% CI margin
+
+                push!(mean_vec, mean_level)
+                push!(ci_lower_vec, mean_level - ci_margin)
+                push!(ci_upper_vec, mean_level + ci_margin)
+            else
+                push!(mean_vec, NaN)
+                push!(ci_lower_vec, NaN)
+                push!(ci_upper_vec, NaN)
+            end
+        end
+    end
+
+    # Create the plot using PGFPlotsX (same style as other plots)
+    ax = @pgf Axis(Options(
+        :width => "18cm",
+        :height => "6cm",
+        :xlabel => "Time Since Production Start (Weeks)",
+        :ylabel => "Avg. Lice per Fish",
+        :xlabel_style => "color=black",
+        :ylabel_style => "color=black",
+        :tick_label_style => "color=black",
+        :xmin => 0,
+        :xmax => config.steps_per_episode,
+        :ymin => 0,
+        "axis background/.style" => Options("fill" => "white"),
+        "legend style" => Options(
+            "fill" => "white",
+            "draw" => "black",
+            "text" => "black",
+            "font" => "\\scriptsize",
+            "at" => "{(0.98,0.98)}",
+            "anchor" => "north east",
+            "cells" => "{anchor=west}"
+        ),
+        "grid" => "both",
+        "major grid style" => "dashed, opacity=0.35",
+    ))
+
+    # Define stages with colors
+    stages = [
+        ("Adult", mean_adult, ci_lower_adult, ci_upper_adult, "blue"),
+        ("Sessile", mean_sessile, ci_lower_sessile, ci_upper_sessile, "green"),
+        ("Motile", mean_motile, ci_lower_motile, ci_upper_motile, "orange"),
+        ("Predicted", mean_predicted, ci_lower_predicted, ci_upper_predicted, "red")
+    ]
+
+    # Plot each stage
+    for (stage_name, mean_data, ci_lower_data, ci_upper_data, color) in stages
+        # Remove NaN values
+        valid_indices = .!isnan.(mean_data) .&& .!isnan.(ci_lower_data) .&& .!isnan.(ci_upper_data)
+
+        if sum(valid_indices) > 0
+            valid_time_steps = time_steps[valid_indices]
+            valid_mean = mean_data[valid_indices]
+            valid_ci_lower = ci_lower_data[valid_indices]
+            valid_ci_upper = ci_upper_data[valid_indices]
+
+            # Create coordinate strings for PGFPlotsX
+            mean_coords = join(["($(valid_time_steps[j]), $(valid_mean[j]))" for j in 1:length(valid_time_steps)], " ")
+            upper_coords = join(["($(valid_time_steps[j]), $(valid_ci_upper[j]))" for j in 1:length(valid_time_steps)], " ")
+            lower_coords = join(["($(valid_time_steps[j]), $(valid_ci_lower[j]))" for j in 1:length(valid_time_steps)], " ")
+
+            # Create safe path name without special characters
+            safe_name = replace(stage_name, " " => "", "-" => "")
+
+            # Add confidence interval fill
+            push!(ax, @pgf("\\addplot[name path=upper$(safe_name), $(color), mark=none, line width=0.5pt, forget plot] coordinates {$(upper_coords)};"))
+            push!(ax, @pgf("\\addplot[name path=lower$(safe_name), $(color), mark=none, line width=0.5pt, forget plot] coordinates {$(lower_coords)};"))
+            push!(ax, @pgf("\\addplot[$(color), fill opacity=0.3, forget plot] fill between[of=upper$(safe_name) and lower$(safe_name)];"))
+
+            # Add the mean line
+            push!(ax, @pgf("\\addplot[$(color), mark=none, line width=1.5pt] coordinates {$(mean_coords)};"))
+            push!(ax, @pgf("\\addlegendentry{$(stage_name)}"))
+        end
+    end
+
+    # Save the plot
+    mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
+    mkpath("Quick_Access")
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "$(algo_name)_sealice_levels_lambda_$(lambda_value).pdf"), ax)
+    PGFPlotsX.save(joinpath("Quick_Access", "$(algo_name)_sealice_levels_lambda_$(lambda_value).pdf"), ax)
+
+    return ax
+end
+
+# ----------------------------
+# Treatment Distribution Comparison: Shows treatment counts for all policies
+# Displays No Treatment, Chemical Treatment, and Thermal Treatment counts
+# ----------------------------
+function plos_one_treatment_distribution_comparison(parallel_data, config)
+    treatment_types  = ["NoTreatment", "Treatment", "ThermalTreatment"]
+    treatment_labels = ["No Treatment", "Chemical", "Thermal"]
+
+    # Define all policies with colors matching other plots
+    policy_info = [
+        ("Heuristic_Policy", "teal", "Heuristic"),
+        ("NUS_SARSOP_Policy", "blue", "SARSOP"),
+        ("VI_Policy", "purple", "VI"),
+        ("QMDP_Policy", "violet", "QMDP"),
+        ("Random_Policy", "orange", "Random"),
+        ("NeverTreat_Policy", "gray", "NeverTreat"),
+        ("AlwaysTreat_Policy", "red", "AlwaysTreat")
+    ]
+
+    # Compute averages per policy
+    treatment_data = Dict{String, Vector{Float64}}()
+    for (policy_name, _, _) in policy_info
+        data_filtered = filter(row -> row.policy == policy_name, parallel_data)
+
+        if isempty(data_filtered)
+            continue
+        end
+
+        seeds = unique(data_filtered.seed)
+        counts = Dict(t => Float64[] for t in treatment_types)
+
+        for seed in seeds
+            data_seed = filter(row -> row.seed == seed, data_filtered)
+            h = data_seed.history[1]
+            actions = collect(action_hist(h))
+            c = Dict(t => 0 for t in treatment_types)
+
+            for a in actions
+                if a == NoTreatment
+                    c["NoTreatment"] += 1
+                elseif a == Treatment
+                    c["Treatment"] += 1
+                elseif a == ThermalTreatment
+                    c["ThermalTreatment"] += 1
+                end
+            end
+
+            for t in treatment_types
+                push!(counts[t], c[t])
+            end
+        end
+
+        treatment_data[policy_name] = [mean(counts[t]) for t in treatment_types]
+    end
+
+    # Create the plot using PGFPlotsX (same style as other plots)
+    ax = @pgf Axis(Options(
+        :ybar => nothing,
+        :bar_width => "8pt",
+        :enlarge_x_limits => "0.15",
+        :width => "18cm",
+        :height => "6cm",
+        :xlabel => "Treatment Type",
+        :ylabel => "Average Number of Treatments",
+        :xlabel_style => "color=black",
+        :ylabel_style => "color=black",
+        :tick_label_style => "color=black",
+        :xtick => "data",
+        :xticklabels => "{" * join(treatment_labels, ",") * "}",
+        "axis background/.style" => Options("fill" => "white"),
+        "legend style" => Options(
+            "fill" => "white",
+            "draw" => "black",
+            "text" => "black",
+            "font" => "\\scriptsize",
+            "at" => "{(0.98,0.98)}",
+            "anchor" => "north east"
+        ),
+        "grid" => "both",
+        "major grid style" => "dashed, opacity=0.35",
+    ))
+
+    # Add bars for each policy
+    for (policy_name, color, label) in policy_info
+        if haskey(treatment_data, policy_name)
+            push!(ax, Plot(Options(:fill => color, :draw => "black", :line_width => "0.3pt"),
+                          Coordinates(enumerate(treatment_data[policy_name]))))
+            push!(ax, LegendEntry(label))
+        end
+    end
+
+    # Save the plot
+    mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
+    mkpath("Quick_Access")
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "north_treatment_distribution.pdf"), ax)
+    PGFPlotsX.save(joinpath("Quick_Access", "north_treatment_distribution.pdf"), ax)
+
+    return ax
 end

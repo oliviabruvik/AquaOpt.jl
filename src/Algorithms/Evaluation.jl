@@ -170,20 +170,24 @@ end
 
 # ----------------------------
 # Extract the number of treatments, regulatory penalties, lost biomass, and fish disease for each policy from the histories and add as columns to the parallel_data dataframe
+# Returns a new DataFrame without modifying the input
 # ----------------------------
 function extract_reward_metrics(data, config)
 
-    # Add new columns to the DataFrame
-    data.mean_rewards_across_sims = zeros(Float64, nrow(data))
-    data.treatment_cost = zeros(Float64, nrow(data))
-    data.treatments = Vector{Dict{Action, Int}}(undef, nrow(data))
-    data.num_regulatory_penalties = zeros(Float64, nrow(data))
-    data.fish_disease = zeros(Float64, nrow(data))
-    data.lost_biomass_1000kg = zeros(Float64, nrow(data))
-    data.mean_adult_sea_lice_level = zeros(Float64, nrow(data))
+    # Create a copy of the data to avoid mutating the input
+    processed_data = copy(data)
+
+    # Add new columns to the DataFrame copy
+    processed_data.mean_rewards_across_sims = zeros(Float64, nrow(processed_data))
+    processed_data.treatment_cost = zeros(Float64, nrow(processed_data))
+    processed_data.treatments = Vector{Dict{Action, Int}}(undef, nrow(processed_data))
+    processed_data.num_regulatory_penalties = zeros(Float64, nrow(processed_data))
+    processed_data.fish_disease = zeros(Float64, nrow(processed_data))
+    processed_data.lost_biomass_1000kg = zeros(Float64, nrow(processed_data))
+    processed_data.mean_adult_sea_lice_level = zeros(Float64, nrow(processed_data))
 
     # For each episode, extract the number of treatments, regulatory penalties, lost biomass, and fish disease
-    for (i, row) in enumerate(eachrow(data))
+    for (i, row) in enumerate(eachrow(processed_data))
 
         # Get the history
         h = row.history
@@ -204,17 +208,17 @@ function extract_reward_metrics(data, config)
         # Get total fish disease
         fish_disease = sum(get_fish_disease(a) + 100.0 * s.SeaLiceLevel for (s, a) in zip(states, actions))
 
-        # Add to dataframe
-        data.treatment_cost[i] = sum(get_treatment_cost(a) for a in actions)
-        data.treatments[i] = treatments
-        data.num_regulatory_penalties[i] = sum(s.Adult > config.regulation_limit ? 1.0 : 0.0 for s in states)
-        data.lost_biomass_1000kg[i] = lost_biomass_1000kg
-        data.fish_disease[i] = fish_disease
-        data.mean_adult_sea_lice_level[i] = mean(s.Adult for s in states)
-        data.mean_rewards_across_sims[i] = mean(rewards)
+        # Add to dataframe copy
+        processed_data.treatment_cost[i] = sum(get_treatment_cost(a) for a in actions)
+        processed_data.treatments[i] = treatments
+        processed_data.num_regulatory_penalties[i] = sum(s.Adult > config.regulation_limit ? 1.0 : 0.0 for s in states)
+        processed_data.lost_biomass_1000kg[i] = lost_biomass_1000kg
+        processed_data.fish_disease[i] = fish_disease
+        processed_data.mean_adult_sea_lice_level[i] = mean(s.Adult for s in states)
+        processed_data.mean_rewards_across_sims[i] = mean(rewards)
     end
 
-    return data
+    return processed_data
 
 end
 
