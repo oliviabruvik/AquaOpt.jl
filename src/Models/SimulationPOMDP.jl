@@ -306,10 +306,13 @@ function POMDPs.reward(pomdp::SeaLiceSimPOMDP, s::EvaluationState, a::Action, sp
 
     # Lost biomass due to mortality
     # Calculate biomass loss from fish death (not reduced growth)
-    # Expected biomass if all fish survived = s.AvgFishWeight * (survived fish before harvest/movement)
-    expected_biomass_if_survived = sp.AvgFishWeight * s.NumberOfFish
-    actual_biomass = sp.AvgFishWeight * sp.NumberOfFish
-    lost_biomass = max(expected_biomass_if_survived - actual_biomass, 0.0)
+    # We need to get the survival rate and calculate how many fish died
+    survival_rate = (1 - pomdp.nat_mort_rate) * (1 - get_treatment_mortality_rate(a))
+    survived_fish = floor(s.NumberOfFish * survival_rate)
+    fish_died = s.NumberOfFish - survived_fish
+
+    # Value dead fish at current weight (before growth would have occurred)
+    lost_biomass = fish_died * s.AvgFishWeight
     lost_biomass_1000kg = lost_biomass / 1000.0  # Convert to tonnes
 
     # Fish disease
