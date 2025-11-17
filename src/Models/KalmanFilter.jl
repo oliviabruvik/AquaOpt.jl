@@ -102,5 +102,12 @@ function POMDPs.update(updater::KalmanUpdater, b0::GaussianBelief, a::Action, o:
     observation = [o.Adult, o.Motile, o.Sessile, o.Temperature]
     b = GaussianFilters.update(updater.filter, b0, action, observation)
 
-    return b
+    # Regularize covariance to ensure positive definiteness
+    # Add small diagonal term (Joseph form-inspired regularization)
+    # This prevents numerical issues in the UKF over many timesteps
+    ϵ = 1e-8
+    Σ_reg = Symmetric(b.Σ + ϵ * I)
+    b_reg = GaussianBelief(b.μ, Σ_reg)
+
+    return b_reg
 end
