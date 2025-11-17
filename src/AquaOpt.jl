@@ -83,10 +83,10 @@ function __init__()
 end
 
 function run_experiments(mode)
-    #main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, ekf_filter=true)
-    main(first_step_flag="solve", log_space=false, experiment_name="raw_space_ukf", mode=mode, ekf_filter=false)
-    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, ekf_filter=false)
-    #main(first_step_flag="solve", log_space=false, experiment_name="raw_space_ekf", mode=mode, ekf_filter=true)
+    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, ekf_filter=true, plot=true)
+    main(first_step_flag="solve", log_space=false, experiment_name="raw_space_ukf", mode=mode, ekf_filter=false, plot=true)
+    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, ekf_filter=false, plot=true)
+    main(first_step_flag="solve", log_space=false, experiment_name="raw_space_ekf", mode=mode, ekf_filter=true, plot=true)
     return
 end
 
@@ -200,11 +200,12 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
             VI_max_iterations=30,
             QMDP_max_iterations=30,
             discount_factor = 0.95,
+            discretization_step = 0.1,
             location = "north", # "north", "west", or "south"
             full_observability_solver = false, # Toggles whether we have full observability in the observation function or not (false). Pairs with high_fidelity_sim = false.
         )
         sim_cfg = SimulationConfig(
-            num_episodes=100,
+            num_episodes=10,
             steps_per_episode=52,
             ekf_filter=ekf_filter,
             sim_reward_lambdas = [1.0, 3.0, 0.5, 0.005, 0.0],  # [treatment, regulatory, biomass, health, sea_lice]
@@ -222,6 +223,7 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
             VI_max_iterations=100,
             QMDP_max_iterations=100,
             discount_factor = 0.95,
+            discretization_step = 0.01,
             location = "north", # "north", "west", or "south"
             full_observability_solver = false, # Toggles whether we have full observability in the observation function or not (false). Pairs with high_fidelity_sim = false.
         )

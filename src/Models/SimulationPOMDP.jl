@@ -287,38 +287,67 @@ function POMDPs.observation(pomdp::SeaLiceSimPOMDP, a::Action, sp::EvaluationSta
 end
 
 # -------------------------
-# Reward function: for now, we only penalize the current sea lice level
-# Penalize the following:
-# - Regulatory non-compliance: exceeding the bounds of the sea lice level
-# - Treatment cost
-# - Fish mortality
-# - Fish health
+# Reward function
+# Penalizes:
+# - Treatment costs (direct operational costs)
+# - Regulatory non-compliance (exponential penalty above limit)
+# - Biomass loss (mortality only - growth reduction is in transition dynamics)
+# - Fish health impacts (treatment side effects)
+# - Sea lice burden (chronic parasite damage)
 # -------------------------
 function POMDPs.reward(pomdp::SeaLiceSimPOMDP, s::EvaluationState, a::Action, sp::EvaluationState)
 
     λ_trt, λ_reg, λ_bio, λ_health, λ_sea_lice = pomdp.reward_lambdas
 
-    # Treatment cost
+    # === 1. DIRECT TREATMENT COSTS ===
     treatment_cost = get_treatment_cost(a)
 
-    # Regulatory penalty
-    regulatory_penalty = get_regulatory_penalty(a) * (s.Adult > pomdp.regulation_limit ? 1.0 : 0.0)
+    # === 2. REGULATORY PENALTY (exponential above limit) ===
+    # Reflects escalating consequences: fines, production caps, license restrictions
+    if s.Adult > pomdp.regulation_limit
+        excess_ratio = s.Adult / pomdp.regulation_limit
+        # Penalty grows as: 100 * (excess%)^2 * ratio
+        # At 0.6 (20% over): 100 * 0.2^2 * 1.2 = 4.8
+        # At 0.75 (50% over): 100 * 0.5^2 * 1.5 = 37.5
+        # At 1.0 (100% over): 100 * 1.0^2 * 2.0 = 200
+        regulatory_penalty = 100.0 * ((excess_ratio - 1.0)^2) * excess_ratio
+    else
+        regulatory_penalty = 0.0
+    end
 
-    # Lost biomass due to mortality
-    # Calculate biomass loss from fish death (not reduced growth)
-    # We need to get the survival rate and calculate how many fish died
+    # === 3. BIOMASS LOSS ===
+    # Only mortality loss from natural and treatment-induced death
+    # Growth reduction from sea lice is modeled in transition dynamics (lice_growth_factor, line 178)
+    # and implicitly affects long-term biomass accumulation without explicit penalty here
     survival_rate = (1 - pomdp.nat_mort_rate) * (1 - get_treatment_mortality_rate(a))
-    survived_fish = floor(s.NumberOfFish * survival_rate)
-    fish_died = s.NumberOfFish - survived_fish
+    fish_died = s.NumberOfFish * (1 - survival_rate)
 
-    # Value dead fish at current weight (before growth would have occurred)
-    lost_biomass = fish_died * s.AvgFishWeight
-    lost_biomass_1000kg = lost_biomass / 1000.0  # Convert to tonnes
+    # Weight biomass by fish size (losing 5kg fish > losing 0.5kg fish)
+    # Normalized to harvest weight (5kg)
+    biomass_value_factor = s.AvgFishWeight / 5.0
+    total_biomass_loss = fish_died * s.AvgFishWeight * biomass_value_factor / 1000.0  # tonnes
 
-    # Fish disease
-    fish_disease = get_fish_disease(a)
+    # === 4. FISH HEALTH (treatment side effects only) ===
+    # Stress, injuries, disease susceptibility from treatments
+    # Does NOT include sea lice damage (that's in sea_lice_penalty)
+    fish_health_penalty = get_fish_disease(a)
 
-    return - (λ_health * fish_disease + λ_trt * treatment_cost + λ_bio * lost_biomass_1000kg + λ_reg * regulatory_penalty + λ_sea_lice * s.Adult)
+    # === 5. SEA LICE BURDEN (chronic parasite damage) ===
+    # Separate from growth: osmoregulatory stress, secondary infections, welfare
+    # Scales non-linearly (exponentially worse at high levels)
+    # At 0.5: 0.5 * 1.0 = 0.5
+    # At 1.0: 1.0 * 1.25 = 1.25
+    # At 2.0: 2.0 * 1.75 = 3.5
+    sea_lice_penalty = s.Adult * (1.0 + 0.5 * max(0, s.Adult - 0.5))
+
+    # === TOTAL REWARD ===
+    return -(
+        λ_trt * treatment_cost +
+        λ_reg * regulatory_penalty +
+        λ_bio * total_biomass_loss +
+        λ_health * fish_health_penalty +
+        λ_sea_lice * sea_lice_penalty
+    )
 end
 
 # -------------------------

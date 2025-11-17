@@ -64,10 +64,26 @@ if !isdefined(Main, :ACTION_CONFIGS)
             duration_days = 7,
             frequency_limit = 4,  # Maximum 4 treatments per year
             fish_disease = 10.0,
-            mortality_rate = 0.1,
+            mortality_rate = 0.05,
             weight_loss = 0.0,
             regulatory_penalty = 100.0
         ),
+
+        # ChemicalTreatment => ActionConfig(
+        #     action = Treatment,
+        #     cost = 10.0,  # MNOK per treatment
+        #     adult_reduction = 0.75,   # 75% reduction
+        #     motile_reduction = 0.84,  # 84% reduction
+        #     sessile_reduction = 0.74, # 74% reduction
+        #     name = "Chemical Treatment",
+        #     description = "Standard chemical treatment for sea lice control",
+        #     duration_days = 7,
+        #     frequency_limit = 4,  # Maximum 4 treatments per year
+        #     fish_disease = 10.0,
+        #     mortality_rate = 0.04,
+        #     weight_loss = 0.0,
+        #     regulatory_penalty = 100.0
+        # ),
         
         ThermalTreatment => ActionConfig(
             action = ThermalTreatment,
@@ -80,7 +96,7 @@ if !isdefined(Main, :ACTION_CONFIGS)
             duration_days = 5,
             frequency_limit = 6,  # Maximum 6 treatments per year
             fish_disease = 15.0,
-            mortality_rate = 0.1,
+            mortality_rate = 0.07,
             weight_loss = 0.0,
             regulatory_penalty = 100.0
         )
