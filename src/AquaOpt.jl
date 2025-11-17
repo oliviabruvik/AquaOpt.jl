@@ -82,20 +82,20 @@ function __init__()
     end
 end
 
-function run_experiments(mode)
-    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, ekf_filter=true, plot=true)
-    main(first_step_flag="solve", log_space=false, experiment_name="raw_space_ukf", mode=mode, ekf_filter=false, plot=true)
-    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, ekf_filter=false, plot=true)
-    main(first_step_flag="solve", log_space=false, experiment_name="raw_space_ekf", mode=mode, ekf_filter=true, plot=true)
+function run_experiments(mode, location)
+    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location=location, ekf_filter=true, plot=true)
+    # main(first_step_flag="solve", log_space=false, experiment_name="raw_space_ukf", mode=mode, location=location, ekf_filter=false, plot=true)
+    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location=location, ekf_filter=false, plot=true)
+    # main(first_step_flag="solve", log_space=false, experiment_name="raw_space_ekf", mode=mode, location=location, ekf_filter=true, plot=true)
     return
 end
 
 # ----------------------------
 # Main function
 # ----------------------------
-function main(;first_step_flag="solve", log_space=true, experiment_name="exp", mode="light", ekf_filter=true, plot=false)
+function main(;first_step_flag="solve", log_space=true, experiment_name="exp", mode="light", location="south", ekf_filter=true, plot=false)
 
-    config, heuristic_config = setup_experiment_configs(experiment_name, log_space, ekf_filter, mode)
+    config, heuristic_config = setup_experiment_configs(experiment_name, log_space, ekf_filter, mode, location)
     algorithms = define_algorithms(config, heuristic_config)
 
     @info """\n
@@ -160,10 +160,10 @@ end
 # ----------------------------
 # Set up and save experiment configuration
 # ----------------------------
-function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, mode="light")
+function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, mode="light", location="south")
 
     # Define experiment configuration
-    exp_name = string(Dates.today(), "/", Dates.now(), "_", experiment_name, "_mode_", mode)
+    exp_name = string(Dates.today(), "/", Dates.now(), "_", experiment_name, "_", mode, "_", location)
 
     @info "Setting up experiment configuration for experiment: $exp_name"
 
@@ -174,6 +174,7 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
             sarsop_max_time=5.0,
             VI_max_iterations=10,
             QMDP_max_iterations=10,
+            location=location,
         )
         sim_cfg = SimulationConfig(
             num_episodes=1000,
@@ -195,20 +196,20 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
     elseif mode == "debug"
         solver_cfg = SolverConfig(
             log_space=log_space,
-            reward_lambdas=[1.0, 3.0, 0.5, 0.01, 0.0], # [1.0, 3.0, 0.5, 0.01, 0.0], # [treatment, regulatory, biomass, health, sea lice]
+            reward_lambdas=[1.0, 0.5, 0.07, 0.1, 2.0], # [1.0, 3.0, 0.5, 0.01, 0.0], # [treatment, regulatory, biomass, health, sea lice]
             sarsop_max_time=30.0,
             VI_max_iterations=30,
             QMDP_max_iterations=30,
             discount_factor = 0.95,
             discretization_step = 0.1,
-            location = "north", # "north", "west", or "south"
+            location = location, # "north", "west", or "south"
             full_observability_solver = false, # Toggles whether we have full observability in the observation function or not (false). Pairs with high_fidelity_sim = false.
         )
         sim_cfg = SimulationConfig(
             num_episodes=10,
             steps_per_episode=52,
             ekf_filter=ekf_filter,
-            sim_reward_lambdas = [1.0, 3.0, 0.5, 0.005, 0.0],  # [treatment, regulatory, biomass, health, sea_lice]
+            sim_reward_lambdas = [1.0, 0.5, 0.07, 0.1, 2.0],  # [treatment, regulatory, biomass, health, sea_lice]
         )
         config = ExperimentConfig(
             solver_config=solver_cfg,
@@ -218,20 +219,20 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
     elseif mode == "paper"
         solver_cfg = SolverConfig(
             log_space=log_space,
-            reward_lambdas=[1.0, 3.0, 0.5, 0.005, 0.0], # [1.0, 3.0, 0.5, 0.01, 0.0], # [treatment, regulatory, biomass, health, sea lice]
+            reward_lambdas=[1.0, 0.5, 0.07, 0.1, 2.0], # [1.0, 3.0, 0.5, 0.01, 0.0], # [treatment, regulatory, biomass, health, sea lice]
             sarsop_max_time=300.0,
             VI_max_iterations=100,
             QMDP_max_iterations=100,
             discount_factor = 0.95,
-            discretization_step = 0.01,
-            location = "north", # "north", "west", or "south"
+            discretization_step = 0.1,
+            location = location, # "north", "west", or "south"
             full_observability_solver = false, # Toggles whether we have full observability in the observation function or not (false). Pairs with high_fidelity_sim = false.
         )
         sim_cfg = SimulationConfig(
             num_episodes=1000,
             steps_per_episode=104,
             ekf_filter=ekf_filter,
-            sim_reward_lambdas = [1.0, 3.0, 0.5, 0.005, 0.0],  # [treatment, regulatory, biomass, health, sea_lice]
+            sim_reward_lambdas = [1.0, 0.5, 0.07, 0.1, 2.0],  # [treatment, regulatory, biomass, health, sea_lice]
         )
         config = ExperimentConfig(
             solver_config=solver_cfg,
@@ -288,12 +289,15 @@ if abspath(PROGRAM_FILE) == @__FILE__
     log_space_flag = true
     experiment_name_flag = "exp"
     mode_flag = "light"
+    location_flag = "north"
 
     for arg in ARGS
         if occursin("--experiment_name=", arg)
             global experiment_name_flag = split(arg, "=")[2]
         elseif occursin("--mode=", arg)
             global mode_flag = split(arg, "=")[2]
+        elseif occursin("--location=", arg)
+            global location_flag = split(arg, "=")[2]
         elseif occursin("--first_step=", arg)
             global first_step_flag = String(split(arg, "=")[2])
         elseif arg == "--raw_space"
@@ -301,8 +305,8 @@ if abspath(PROGRAM_FILE) == @__FILE__
         end
     end
 
-    # main(first_step_flag=first_step_flag, log_space=log_space_flag, experiment_name=experiment_name_flag, mode=mode_flag)
-    run_experiments(mode_flag)
+    # main(first_step_flag=first_step_flag, log_space=log_space_flag, experiment_name=experiment_name_flag, mode=mode_flag, location=location_flag)
+    run_experiments(mode_flag, location_flag)
 end
 
 # -------------------------
