@@ -44,6 +44,11 @@ end
 	growthRate::Float64 = 0.3
     discount_factor::Float64 = 0.95
     full_observability_solver::Bool = false
+    location::String = "north"
+    reproduction_rate::Float64 = 2.0
+    motile_ratio::Float64 = 1.0
+    sessile_ratio::Float64 = 1.0
+    base_temperature::Float64 = 10.0
 
     # Regulation parameters
     regulation_limit::Float64 = 0.5
@@ -58,7 +63,7 @@ end
     W0::Float64 = 0.1                  # weight centering (kg)
 
     # Count bounds
-    sea_lice_bounds::Tuple{Float64, Float64} = (0.0, 30.0)
+    sea_lice_bounds::Tuple{Float64, Float64} = (0.0, 10.0)
     initial_bounds::Tuple{Float64, Float64} = (0.0, 0.25)
     initial_mean::Float64 = 0.13
     
@@ -91,15 +96,24 @@ POMDPs.obsindex(pomdp::SeaLicePOMDP, o::SeaLiceObservation) = encode(pomdp.lindi
 # -------------------------
 function POMDPs.transition(pomdp::SeaLicePOMDP, s::SeaLiceState, a::Action)
 
-    # Apply treatment
+    # Apply treatment in raw space
     rf_a, rf_m, rf_s = get_treatment_effectiveness(a)
-    adult = s.SeaLiceLevel * (1 - rf_a)
+    adult_raw = max(s.SeaLiceLevel * (1 - rf_a), 0.0)
+    motile_raw = max(adult_raw * pomdp.motile_ratio * (1 - rf_m), 0.0)
+    sessile_raw = max(adult_raw * pomdp.sessile_ratio * (1 - rf_s), 0.0)
 
-    # Calculate the mean of the transition distribution
-    μ = exp(pomdp.growthRate) * adult
+    # Predict next adult level using the biological drift
+    pred_adult_raw, _, _ = predict_next_abundances(
+        adult_raw,
+        motile_raw,
+        sessile_raw,
+        pomdp.base_temperature,
+        pomdp.location,
+        pomdp.reproduction_rate,
+    )
 
     # Clamp the mean to the range of the sea lice range
-    μ = clamp(μ, pomdp.sea_lice_bounds...)
+    μ = clamp(pred_adult_raw, pomdp.sea_lice_bounds...)
 
     # Get the distribution
     dist = truncated(Normal(μ, pomdp.adult_sd), pomdp.sea_lice_bounds...)

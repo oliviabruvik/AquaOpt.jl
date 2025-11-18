@@ -89,7 +89,7 @@ end
     W0::Float64 = 0.1 # kg
 
     # Bounds
-    sea_lice_bounds::Tuple{Float64, Float64} = (0.0, 30.0)
+    sea_lice_bounds::Tuple{Float64, Float64} = (0.0, 10.0)
     initial_bounds::Tuple{Float64, Float64} = (0.0, 0.25)
     weight_bounds::Tuple{Float64, Float64} = (0.0, 7.0)
     number_of_fish_bounds::Tuple{Float64, Float64} = (0.0, 200000.0)

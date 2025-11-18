@@ -41,6 +41,11 @@ end
 	growthRate::Float64 = 1.2
     discount_factor::Float64 = 0.95
     full_observability_solver::Bool = false
+    location::String = "north"
+    reproduction_rate::Float64 = 2.0
+    motile_ratio::Float64 = 1.0
+    sessile_ratio::Float64 = 1.0
+    base_temperature::Float64 = 10.0
 
     # Regulation parameters
     regulation_limit::Float64 = 0.5
@@ -55,7 +60,7 @@ end
     W0::Float64 = 0.1                  # weight centering (kg)
 
     # Count bounds
-    sea_lice_bounds::Tuple{Float64, Float64} = (log(1e-3), log(30.0)) # (-6.91, 3.40)
+    sea_lice_bounds::Tuple{Float64, Float64} = (log(1e-3), log(10.0)) # (-6.91, 3.40)
     initial_bounds::Tuple{Float64, Float64} = (log(1e-3), log(0.25))
     initial_mean::Float64 = log(0.13)
 
@@ -97,17 +102,26 @@ end
 # -------------------------
 function POMDPs.transition(pomdp::SeaLiceLogPOMDP, s::SeaLiceLogState, a::Action)
 
-    # Apply treatment
+    # Apply treatment in raw space
     rf_a, rf_m, rf_s = get_treatment_effectiveness(a)
-    adult = s.SeaLiceLevel + log(1 - rf_a)
+    adult_raw = max(exp(s.SeaLiceLevel) * (1 - rf_a), 1e-6)
+    motile_raw = max(adult_raw * pomdp.motile_ratio * (1 - rf_m), 1e-6)
+    sessile_raw = max(adult_raw * pomdp.sessile_ratio * (1 - rf_s), 1e-6)
 
-    # Calculate the mean of the transition distribution
-    μ = pomdp.growthRate + adult
+    # Predict next adult level using the same biological drift as the simulator
+    pred_adult_raw, _, _ = predict_next_abundances(
+        adult_raw,
+        motile_raw,
+        sessile_raw,
+        pomdp.base_temperature,
+        pomdp.location,
+        pomdp.reproduction_rate,
+    )
 
-    # Clamp the mean to the range of the sea lice range
-    μ = clamp(μ, pomdp.sea_lice_bounds...)
+    # Convert back to log space and clamp to discretization bounds
+    μ = clamp(log(max(pred_adult_raw, 1e-6)), pomdp.sea_lice_bounds...)
 
-    # Get the distribution
+    # Construct transition distribution in log space
     dist = truncated(Normal(μ, pomdp.adult_sd), pomdp.sea_lice_bounds...)
 
     # Get the states

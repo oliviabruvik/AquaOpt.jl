@@ -715,6 +715,11 @@ function plot_heuristic_policy_action_heatmap(config, λ=0.6)
             adult_sd=abs(log(config.solver_config.raw_space_sampling_sd)),
             regulation_limit=config.solver_config.regulation_limit,
             full_observability_solver=config.solver_config.full_observability_solver,
+            location=config.solver_config.location,
+            reproduction_rate=config.solver_config.reproduction_rate,
+            motile_ratio=motile_ratio,
+            sessile_ratio=sessile_ratio,
+            base_temperature=base_temperature,
         )
     else
         pomdp = SeaLicePOMDP(
@@ -952,6 +957,11 @@ function generate_policy_action_data(policy_type, config, λ)
                 adult_sd=abs(log(config.solver_config.raw_space_sampling_sd)),
                 regulation_limit=config.solver_config.regulation_limit,
                 full_observability_solver=config.solver_config.full_observability_solver,
+                location=config.solver_config.location,
+                reproduction_rate=config.solver_config.reproduction_rate,
+                motile_ratio=motile_ratio,
+                sessile_ratio=sessile_ratio,
+                base_temperature=base_temperature,
             )
         else
             pomdp = SeaLicePOMDP(
