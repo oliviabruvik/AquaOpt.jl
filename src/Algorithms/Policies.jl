@@ -242,7 +242,8 @@ end
 function POMDPs.action(policy::AdaptorPolicy, b)
 
     # Predict the next state (always in raw space from the biological model)
-    pred_adult, pred_motile, pred_sessile = predict_next_abundances(b.μ[1][1], b.μ[3][1], b.μ[2][1], b.μ[4][1], policy.location, policy.reproduction_rate)
+    # Belief means are ordered [Adult, Motile, Sessile, Temperature]
+    pred_adult, pred_motile, pred_sessile = predict_next_abundances(b.μ[1][1], b.μ[2][1], b.μ[3][1], b.μ[4][1], policy.location, policy.reproduction_rate)
     adult_variance = b.Σ[1,1]  # Variance in raw space
 
     # Clamp predictions to be positive
@@ -343,7 +344,7 @@ end
 function POMDPs.action(policy::FullObservabilityAdaptorPolicy, s)
 
     # Predict the next state
-    pred_adult, pred_motile, pred_sessile = predict_next_abundances(s.sessile, s.motile, s.adult, s.temp, policy.location, policy.reproduction_rate)
+    pred_adult, pred_motile, pred_sessile = predict_next_abundances(s.Adult, s.Motile, s.Sessile, s.Temperature, policy.location, policy.reproduction_rate)
 
     # Clamp predictions to be positive
     pred_adult = max(pred_adult, 1e-3)
