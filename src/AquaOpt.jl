@@ -89,15 +89,22 @@ function run_experiments(mode, location)
     # [0.7, 2.0, 0.1, 0.1, 0.8]
     # reward_lambdas1 = [50.0, 0.2, 0.5, 0.5, 0.1] # [treatment, regulatory, biomass, health, sea lice]
     reward_lambdas1 = [0.2, 0.01, 0.1, 0.2, 0.1] # [treatment, regulatory, biomass, health, sea lice]
-    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location=location, ekf_filter=true, plot=true, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas1)
+    #main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location="north", ekf_filter=true, plot=true, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas1)
+    #main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location="west", ekf_filter=true, plot=true, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas1)
+    #main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location="south", ekf_filter=true, plot=true, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas1)
 
     # Option 2: Cost-focused (prioritize economics over welfare)
-    reward_lambdas2 = [0.4, 0.02, 0.1, 2.0, 0.8] # [treatment, regulatory, biomass, health, sea lice]
-    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location=location, ekf_filter=true, plot=true, reward_lambdas=reward_lambdas2, sim_reward_lambdas=reward_lambdas2)
+    # reward_lambdas2 = [0.4, 0.02, 0.1, 2.0, 0.8] # [treatment, regulatory, biomass, health, sea lice]
+    reward_lambdas2 = [0.4, 0.1, 0.1, 0.15, 0.5] # [treatment, regulatory, biomass, health, sea lice]
+    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location="north", ekf_filter=true, plot=true, reward_lambdas=reward_lambdas2, sim_reward_lambdas=reward_lambdas2)
+    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location="west", ekf_filter=true, plot=true, reward_lambdas=reward_lambdas2, sim_reward_lambdas=reward_lambdas2)
+    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location="south", ekf_filter=true, plot=true, reward_lambdas=reward_lambdas2, sim_reward_lambdas=reward_lambdas2)
 
     # Option 3: Welfare-focused (prioritize fish health and avoid over-treatment)
-    reward_lambdas3 = [0.2, 0.02, 0.1, 0.3, 0.1] # [treatment, regulatory, biomass, health, sea lice]
-    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location=location, ekf_filter=true, plot=true, reward_lambdas=reward_lambdas3, sim_reward_lambdas=reward_lambdas3)
+    reward_lambdas2 = [0.4, 0.1, 0.1, 2.0, 0.8] # [treatment, regulatory, biomass, health, sea lice]
+    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location="north", ekf_filter=true, plot=true, reward_lambdas=reward_lambdas3, sim_reward_lambdas=reward_lambdas3)
+    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location="west", ekf_filter=true, plot=true, reward_lambdas=reward_lambdas3, sim_reward_lambdas=reward_lambdas3)
+    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location="south", ekf_filter=true, plot=true, reward_lambdas=reward_lambdas3, sim_reward_lambdas=reward_lambdas3)
     
     # main(first_step_flag="solve", log_space=false, experiment_name="raw_space_ukf", mode=mode, location=location, ekf_filter=false, plot=true)
     # main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location=location, ekf_filter=false, plot=true, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas)
@@ -190,7 +197,7 @@ function infer_growth_rate_from_location(location::String, reproduction_rate::Fl
     return log(ratio)
 end
 
-function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, mode="light", location="south"; reward_lambdas::Vector{Float64}, sim_reward_lambdas::Vector{Float64}, solver_growth_rate=nothing)
+function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, mode="light", location="south"; reward_lambdas::Vector{Float64}, sim_reward_lambdas::Vector{Float64}, solver_growth_rate=nothing, solver_reproduction_rate=nothing, solver_regulation_limit=nothing)
 
     # Define experiment configuration
     exp_name = string(Dates.today(), "/", Dates.now(), "_", experiment_name, "_", mode, "_", location, "_", reward_lambdas)
@@ -198,8 +205,8 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
     @info "Setting up experiment configuration for experiment: $exp_name"
 
     # Align solver growth rate with biological dynamics unless overridden
-    reproduction_rate = SolverConfig().reproduction_rate
-    regulation_limit = SolverConfig().regulation_limit
+    reproduction_rate = solver_reproduction_rate === nothing ? SolverConfig().reproduction_rate : solver_reproduction_rate
+    regulation_limit = solver_regulation_limit === nothing ? SolverConfig().regulation_limit : solver_regulation_limit
     inferred_growth_rate = solver_growth_rate === nothing ? infer_growth_rate_from_location(String(location), reproduction_rate, regulation_limit) : solver_growth_rate
     @info "Inferred growth rate: $inferred_growth_rate"
 
@@ -207,6 +214,7 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
         solver_cfg = SolverConfig(
             log_space=log_space,
             growthRate=inferred_growth_rate,
+            reproduction_rate=reproduction_rate,
             reward_lambdas=reward_lambdas, # [1.0, 3.0, 0.5, 0.01, 0.0], # [treatment, regulatory, biomass, health, sea lice]
             sarsop_max_time=30.0,
             VI_max_iterations=30,
@@ -232,6 +240,7 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
         solver_cfg = SolverConfig(
             log_space=log_space,
             growthRate=inferred_growth_rate,
+            reproduction_rate=reproduction_rate,
             reward_lambdas=reward_lambdas, # [1.0, 3.0, 0.5, 0.01, 0.0], # [treatment, regulatory, biomass, health, sea lice]
             sarsop_max_time=300.0,
             VI_max_iterations=100,

@@ -55,7 +55,7 @@ end
     W0::Float64 = 0.1                  # weight centering (kg)
 
     # Count bounds
-    sea_lice_bounds::Tuple{Float64, Float64} = (log(1e-3), log(5.0)) # (-3, 0.70)
+    sea_lice_bounds::Tuple{Float64, Float64} = (log(1e-3), log(30.0)) # (-6.91, 3.40)
     initial_bounds::Tuple{Float64, Float64} = (log(1e-3), log(0.25))
     initial_mean::Float64 = log(0.13)
 

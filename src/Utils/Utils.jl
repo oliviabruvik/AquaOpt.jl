@@ -123,8 +123,8 @@ function predict_next_abundances(adult, motile, sessile, temp, location="north",
     # Add an influx of sessiles from the sea (external larval pressure)
     pred_sessile += params.external_influx
 
-    # Clamp the sea lice levels to be positive
-    pred_adult = max(pred_adult, zero(pred_adult))
+    # Clamp the sea lice levels to be positive and cap adult lice at 30 per fish
+    pred_adult = clamp(pred_adult, 0.0, 30.0)
     pred_motile = max(pred_motile, zero(pred_motile))
     pred_sessile = max(pred_sessile, zero(pred_sessile))
 
