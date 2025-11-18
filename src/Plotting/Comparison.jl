@@ -1,6 +1,6 @@
 using Plots
 using JLD2
-plotlyjs()  # Set the backend to PlotlyJS
+
 
 # ----------------------------
 # Plot 2: Cost vs Sea Lice for one policy
@@ -26,7 +26,7 @@ function plot_policy_cost_vs_sealice(histories, avg_results, title, config)
         episode_costs = Float64[]
         episode_sealice = Float64[]
         
-        for episode in 1:config.num_episodes
+        for episode in 1:config.simulation_config.num_episodes
 
             # Get episode history
             episode_history = histories_lambda[episode]
@@ -37,7 +37,7 @@ function plot_policy_cost_vs_sealice(histories, avg_results, title, config)
             rewards = collect(reward_hist(episode_history))
             
             # Episode treatment cost
-            episode_cost = sum(a == Treatment for a in actions) * config.costOfTreatment
+            episode_cost = sum(get_treatment_cost(a) for a in actions)
             push!(episode_costs, episode_cost)
             
             # Episode sea lice level
@@ -183,7 +183,7 @@ function plot_all_cost_vs_sealice(config)
                 episode_costs = Float64[]
                 episode_sealice = Float64[]
                 
-                for episode in 1:config.num_episodes
+                for episode in 1:config.simulation_config.num_episodes
                     # Get episode history
                     episode_history = histories_lambda[episode]
 
@@ -192,7 +192,7 @@ function plot_all_cost_vs_sealice(config)
                     states = collect(state_hist(episode_history))
 
                     # Episode treatment cost
-                    episode_cost = sum(a == Treatment for a in actions) * config.costOfTreatment
+                    episode_cost = sum(get_treatment_cost(a) for a in actions)
                     push!(episode_costs, episode_cost)
                     
                     # Episode sea lice Level
@@ -318,7 +318,7 @@ function plot_policy_sealice_levels_over_lambdas(config)
 
                 # Calculate sea lice level for each episode
                 episode_sealice = Float64[]
-                for episode in 1:config.num_episodes
+                for episode in 1:config.simulation_config.num_episodes
                     episode_history = histories_lambda[episode]
                     states = collect(state_hist(episode_history))
                     episode_avg = mean(s.SeaLiceLevel for s in states)
@@ -406,10 +406,10 @@ function plot_policy_treatment_cost_over_lambdas(config)
                 
                 # Calculate treatment cost for each episode
                 episode_costs = Float64[]
-                for episode in 1:config.num_episodes
+                for episode in 1:config.simulation_config.num_episodes
                     episode_history = histories_lambda[episode]
                     actions = collect(action_hist(episode_history))
-                    episode_cost = sum(a == Treatment for a in actions) * config.costOfTreatment
+                    episode_cost = sum(get_treatment_cost(a) for a in actions)
                     push!(episode_costs, episode_cost)
                 end
                 
@@ -503,7 +503,7 @@ function plot_policy_reward_over_lambdas(config)
 
                     episode_rewards = Float64[]
 
-                    for episode in 1:config.num_episodes
+                    for episode in 1:config.simulation_config.num_episodes
                         episode_history = histories_lambda[episode]
                         rewards = collect(reward_hist(episode_history))
                         episode_reward = mean(rewards)

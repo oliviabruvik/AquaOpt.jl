@@ -1,7 +1,4 @@
-# Include shared types
-include("../Utils/SharedTypes.jl")
-include("../Utils/Utils.jl")
-include("KalmanFilter.jl")
+
 
 using DataFrames
 import Distributions: Normal, Uniform
@@ -60,7 +57,7 @@ end
     reward_lambdas::Vector{Float64} = [0.5, 0.5, 0.0, 0.0, 0.0] # [treatment, regulatory, biomass, health, sea_lice]
 	costOfTreatment::Float64 = 10.0
 	growthRate::Float64 = 0.3
-	rho::Float64 = 0.95
+    reproduction_rate::Float64 = 2.0  # Number of sessile larvae produced per adult female per week
     discount_factor::Float64 = 0.95
 
     # Regulation parameters
@@ -92,7 +89,7 @@ end
     W0::Float64 = 0.1 # kg
 
     # Bounds
-    sea_lice_bounds::Tuple{Float64, Float64} = (0.0, 30.0)
+    sea_lice_bounds::Tuple{Float64, Float64} = (0.0, 10.0)
     initial_bounds::Tuple{Float64, Float64} = (0.0, 0.25)
     weight_bounds::Tuple{Float64, Float64} = (0.0, 7.0)
     number_of_fish_bounds::Tuple{Float64, Float64} = (0.0, 200000.0)
@@ -106,7 +103,7 @@ end
     adult_sd::Float64 = 0.1
     motile_sd::Float64 = 0.1
     sessile_sd::Float64 = 0.1
-    temp_sd::Float64 = 0.0 # TODO: remember to change this back to 0.1
+    temp_sd::Float64 = 0.1 # TODO: remember to change this back to 0.1
     weight_sd::Float64 = 0.05
     number_of_fish_sd::Float64 = 0.0
 
@@ -121,13 +118,13 @@ end
     production_start_week::Int64 = 34 # Week 34 is approximately July 1st
 
     # Location for biological and temperature model
-    location::String = "north" # "north", "west", or "south"
+    location::String = "south" # "north", "west", or "south"
 end
 
 # -------------------------
 # POMDPs.jl Interface
 # -------------------------
-POMDPs.actions(pomdp::SeaLiceSimPOMDP) = [NoTreatment, Treatment, ThermalTreatment]
+POMDPs.actions(pomdp::SeaLiceSimPOMDP) = [NoTreatment, MechanicalTreatment, ChemicalTreatment, ThermalTreatment]
 POMDPs.discount(pomdp::SeaLiceSimPOMDP) = pomdp.discount_factor
 POMDPs.isterminal(pomdp::SeaLiceSimPOMDP, s::EvaluationState) = false
 
@@ -146,9 +143,9 @@ function POMDPs.transition(pomdp::SeaLiceSimPOMDP, s::EvaluationState, a::Action
         treated_motile = s.Motile * (1 - rf_m)
         treated_sessile = s.Sessile * (1 - rf_s)
 
-        # Predict next abundances using biological model
+        # Predict next abundances using biological model with reproduction
         next_adult, next_motile, next_sessile = predict_next_abundances(
-            treated_adult, treated_motile, treated_sessile, s.Temperature, pomdp.location
+            treated_adult, treated_motile, treated_sessile, s.Temperature, pomdp.location, pomdp.reproduction_rate
         )
 
         # Update temperature for next week
@@ -173,8 +170,15 @@ function POMDPs.transition(pomdp::SeaLiceSimPOMDP, s::EvaluationState, a::Action
         next_pred = clamp(next_adult, pomdp.sea_lice_bounds...)
  
         # Calculate the weight transition based on a von Bertalanffy / logistic-like weekly update
-        # W_{t+1} = W_t + (k0 * f(T)) * (w_max - W_t)
-        k0 = max(pomdp.k_growth  * (1 + pomdp.temp_sensitivity * (s.Temperature - 10)), 0.0)
+        # W_{t+1} = W_t + (k0 * f(T) * f(lice)) * (w_max - W_t)
+        # Sea lice reduce growth: higher lice = slower growth
+        # Using logistic function: growth_reduction = 1 / (1 + exp(5 * (adult - 0.5)))
+        # At adult=0.5 (regulation limit): ~50% growth reduction
+        # At adult=1.0: ~99% growth reduction
+        lice_growth_factor = 1.0 / (1.0 + exp(5.0 * (s.Adult - 0.5)))
+
+        k0_base = pomdp.k_growth * (1.0 + pomdp.temp_sensitivity * (s.Temperature - 10.0))
+        k0 = max(k0_base * lice_growth_factor, 0.0)
         next_average_weight = s.AvgFishWeight + k0 * (pomdp.w_max - s.AvgFishWeight)
         next_average_weight = clamp(next_average_weight, pomdp.weight_bounds...)
 
@@ -256,7 +260,7 @@ function POMDPs.observation(pomdp::SeaLiceSimPOMDP, a::Action, sp::EvaluationSta
         observed_sessile = max(observed_sessile, 0.0)
 
         # Predict the next adult sea lice level based on the current state and temperature
-        pred_adult, _, _ = predict_next_abundances(observed_adult, observed_motile, observed_sessile, observed_temperature, pomdp.location)
+        pred_adult, _, _ = predict_next_abundances(observed_adult, observed_motile, observed_sessile, observed_temperature, pomdp.location, pomdp.reproduction_rate)
 
         # Clamp the sea lice levels to be positive and within the bounds of the SeaLicePOMDP
         pred_adult = clamp(pred_adult, pomdp.sea_lice_bounds...)
@@ -283,34 +287,74 @@ function POMDPs.observation(pomdp::SeaLiceSimPOMDP, a::Action, sp::EvaluationSta
 end
 
 # -------------------------
-# Reward function: for now, we only penalize the current sea lice level
-# Penalize the following:
-# - Regulatory non-compliance: exceeding the bounds of the sea lice level
-# - Treatment cost
-# - Fish mortality
-# - Fish health
+# Reward function
+# Penalizes:
+# - Treatment costs (direct operational costs)
+# - Regulatory non-compliance (exponential penalty above limit)
+# - Biomass loss (mortality only - growth reduction is in transition dynamics)
+# - Fish health impacts (treatment side effects)
+# - Sea lice burden (chronic parasite damage)
 # -------------------------
 function POMDPs.reward(pomdp::SeaLiceSimPOMDP, s::EvaluationState, a::Action, sp::EvaluationState)
 
     λ_trt, λ_reg, λ_bio, λ_health, λ_sea_lice = pomdp.reward_lambdas
 
-    # Treatment cost
+    # === 1. DIRECT TREATMENT COSTS ===
     treatment_cost = get_treatment_cost(a)
 
-    # Regulatory penalty
-    regulatory_penalty = get_regulatory_penalty(a) * (s.Adult > pomdp.regulation_limit ? 1.0 : 0.0)
+    # === 2. REGULATORY PENALTY (exponential above limit) ===
+    # Reflects escalating consequences: fines, production caps, license restrictions
+    if s.Adult > pomdp.regulation_limit
+        excess_ratio = s.Adult / pomdp.regulation_limit
+        # Penalty grows as: 100 * (excess%)^2 * ratio
+        # At 0.6 (20% over): 100 * 0.2^2 * 1.2 = 4.8
+        # At 0.75 (50% over): 100 * 0.5^2 * 1.5 = 37.5
+        # At 1.0 (100% over): 100 * 1.0^2 * 2.0 = 200
+        regulatory_penalty = 100.0 # * ((excess_ratio - 1.0)^2) * excess_ratio
+    else
+        regulatory_penalty = 0.0
+    end
 
-    # Lost biomass
-    Bt = sp.AvgFishWeight * s.NumberOfFish # Using sp.AvgFishWeight because it is the projected average weight of the fish in the pen
-    Btp = sp.AvgFishWeight * sp.NumberOfFish
-    lost_biomass = max(Bt - Btp, 0.0)
-    lost_biomass_1000kg = lost_biomass / 1000.0
-    @assert lost_biomass >= 0.0
+    # === 3. BIOMASS LOSS ===
+    # Only mortality loss from natural and treatment-induced death
+    # Growth reduction from sea lice is modeled in transition dynamics (lice_growth_factor, line 178)
+    # and implicitly affects long-term biomass accumulation without explicit penalty here
+    survival_rate = (1 - pomdp.nat_mort_rate) * (1 - get_treatment_mortality_rate(a))
+    fish_died = s.NumberOfFish * (1 - survival_rate)
 
-    # Fish disease
-    fish_disease = get_fish_disease(a)
+    # Weight biomass by fish size (losing 5kg fish > losing 0.5kg fish)
+    # Normalized to harvest weight (5kg)
+    biomass_value_factor = s.AvgFishWeight / 5.0
+    total_biomass_loss = fish_died * s.AvgFishWeight * biomass_value_factor / 1000.0  # tonnes
 
-    return - (λ_health * fish_disease + λ_trt * treatment_cost + λ_bio * lost_biomass_1000kg + λ_reg * regulatory_penalty + λ_sea_lice * s.Adult)
+    # === 4. FISH HEALTH (treatment side effects only) ===
+    # Stress, injuries, disease susceptibility from treatments
+    # Does NOT include sea lice damage (that's in sea_lice_penalty)
+    fish_health_penalty = get_fish_disease(a)
+
+    # === 5. SEA LICE BURDEN (chronic parasite damage) ===
+    # Separate from growth: osmoregulatory stress, secondary infections, welfare
+    # Scales non-linearly (exponentially worse at high levels)
+    # At 0.1: 0.10
+    # At 0.5: 0.50
+    # At 1.0: 1.00 × 1.10 = 1.10 (milder)
+    # At 2.0: 2.00 × 1.30 = 2.60 (much milder than 3.50)
+    sea_lice_penalty = s.Adult * (1.0 + 0.2 * max(0, s.Adult - 0.5))
+
+    print("\n\ntreatment_cost: ", treatment_cost)
+    print("\nregulatory_penalty: ", regulatory_penalty)
+    print("\ntotal_biomass_loss: ", total_biomass_loss)
+    print("\nfish_health_penalty", fish_health_penalty)
+    print("\nsea_lice_penalty", sea_lice_penalty)
+
+    # === TOTAL REWARD ===
+    return -(
+        λ_trt * treatment_cost +
+        λ_reg * regulatory_penalty +
+        λ_bio * total_biomass_loss +
+        λ_health * fish_health_penalty +
+        λ_sea_lice * sea_lice_penalty
+    )
 end
 
 # -------------------------
@@ -328,7 +372,7 @@ function POMDPs.initialstate(pomdp::SeaLiceSimPOMDP)
         sessile = pomdp.sessile_mean + rand(rng, pomdp.sessile_dist)
 
         # Next week's predicted adult sea lice level
-        pred_adult, _, _ = predict_next_abundances(adult, motile, sessile, temperature, pomdp.location)
+        pred_adult, _, _ = predict_next_abundances(adult, motile, sessile, temperature, pomdp.location, pomdp.reproduction_rate)
 
         # Clamp the sea lice levels to be positive
         adult = max(adult, 0.0)

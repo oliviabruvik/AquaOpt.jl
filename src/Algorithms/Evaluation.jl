@@ -1,5 +1,3 @@
-include("Simulation.jl")
-
 using GaussianFilters
 using POMDPs
 using POMDPModels
@@ -48,7 +46,7 @@ function evaluate_simulation_results(config, algorithm, histories)
 
         episode_costs, episode_abundances, episode_rewards = [], [], []
 
-        for episode in 1:config.num_episodes
+        for episode in 1:config.simulation_config.num_episodes
 
             # Get episode history
             episode_history = histories_lambda[episode]
@@ -59,7 +57,7 @@ function evaluate_simulation_results(config, algorithm, histories)
             rewards = collect(reward_hist(episode_history))
 
             # Get total treatment cost
-            episode_cost = sum(a == Treatment for a in actions) * config.costOfTreatment
+            episode_cost = sum(get_treatment_cost(a) for a in actions)
             
             # Get mean abundance
             episode_abundance = mean(s.SeaLiceLevel for s in states)
@@ -82,8 +80,50 @@ function evaluate_simulation_results(config, algorithm, histories)
     # Save results
     mkpath(config.results_dir)
     @save joinpath(config.results_dir, "$(algorithm.solver_name)_avg_results.jld2") avg_results
+    CSV.write(joinpath(config.results_dir, "$(algorithm.solver_name)_avg_results.csv"), avg_results)
     
     return avg_results
+end
+
+# ----------------------------
+# Extract histories for a specific algorithm from parallel simulation results
+# Takes in config, algorithm and parallel data
+# Returns a histories object where the key is the lambda value and the value is a vector of episode histories
+# ----------------------------
+function extract_simulation_histories(config, algorithm, parallel_data)
+
+    histories = Dict{Float64, Vector{Any}}()
+
+    for λ in config.lambda_values
+
+        # Get histories for this lambda
+        data_lambda = filter(row -> row.lambda == λ && row.policy == algorithm.solver_name, parallel_data)
+
+        episode_histories = Vector{Any}()
+
+        for episode in 1:config.simulation_config.num_episodes
+
+            # Get histories for this episode
+            data_episode = filter(row -> row.episode_number == episode, data_lambda)
+
+            if nrow(data_episode) == 1
+                push!(episode_histories, data_episode.history[1])
+            else
+                error("Expected 1 history for lambda=$(λ), policy=$(algorithm.solver_name), seed=$(episode), but found $(nrow(data_episode))")
+            end
+        end
+
+        histories[λ] = episode_histories
+    end
+
+    # Create directory for simulation histories
+    histories_dir = joinpath(config.simulations_dir, "$(algorithm.solver_name)")
+    mkpath(histories_dir)
+    histories_filename = "$(algorithm.solver_name)_histories"
+    histories_filepath = joinpath(histories_dir, "$(algorithm.solver_name)_histories.jld2")
+    @save histories_filepath histories
+
+    return histories
 end
 
 # ----------------------------
@@ -125,26 +165,29 @@ function display_best_lambda_for_each_policy(parallel_data, algorithms)
         data_grouped_by_lambda = groupby(data_filtered, :lambda)
         result = combine(data_grouped_by_lambda, :reward => mean_and_ci => AsTable)
         println(result)
-    
     end
 end
 
 # ----------------------------
 # Extract the number of treatments, regulatory penalties, lost biomass, and fish disease for each policy from the histories and add as columns to the parallel_data dataframe
+# Returns a new DataFrame without modifying the input
 # ----------------------------
 function extract_reward_metrics(data, config)
 
-    # Add new columns to the DataFrame
-    data.mean_rewards_across_sims = zeros(Float64, nrow(data))
-    data.treatment_cost = zeros(Float64, nrow(data))
-    data.treatments = Vector{Dict{Action, Int}}(undef, nrow(data))
-    data.num_regulatory_penalties = zeros(Float64, nrow(data))
-    data.fish_disease = zeros(Float64, nrow(data))
-    data.lost_biomass_1000kg = zeros(Float64, nrow(data))
-    data.mean_adult_sea_lice_level = zeros(Float64, nrow(data))
+    # Create a copy of the data to avoid mutating the input
+    processed_data = copy(data)
+
+    # Add new columns to the DataFrame copy
+    processed_data.mean_rewards_across_sims = zeros(Float64, nrow(processed_data))
+    processed_data.treatment_cost = zeros(Float64, nrow(processed_data))
+    processed_data.treatments = Vector{Dict{Action, Int}}(undef, nrow(processed_data))
+    processed_data.num_regulatory_penalties = zeros(Float64, nrow(processed_data))
+    processed_data.fish_disease = zeros(Float64, nrow(processed_data))
+    processed_data.lost_biomass_1000kg = zeros(Float64, nrow(processed_data))
+    processed_data.mean_adult_sea_lice_level = zeros(Float64, nrow(processed_data))
 
     # For each episode, extract the number of treatments, regulatory penalties, lost biomass, and fish disease
-    for (i, row) in enumerate(eachrow(data))
+    for (i, row) in enumerate(eachrow(processed_data))
 
         # Get the history
         h = row.history
@@ -165,24 +208,24 @@ function extract_reward_metrics(data, config)
         # Get total fish disease
         fish_disease = sum(get_fish_disease(a) + 100.0 * s.SeaLiceLevel for (s, a) in zip(states, actions))
 
-        # Add to dataframe
-        data.treatment_cost[i] = sum(get_treatment_cost(a) for a in actions)
-        data.treatments[i] = treatments
-        data.num_regulatory_penalties[i] = sum(s.Adult > config.regulation_limit ? 1.0 : 0.0 for s in states)
-        data.lost_biomass_1000kg[i] = lost_biomass_1000kg
-        data.fish_disease[i] = fish_disease
-        data.mean_adult_sea_lice_level[i] = mean(s.Adult for s in states)
-        data.mean_rewards_across_sims[i] = mean(rewards)
+        # Add to dataframe copy
+        processed_data.treatment_cost[i] = sum(get_treatment_cost(a) for a in actions)
+        processed_data.treatments[i] = treatments
+        processed_data.num_regulatory_penalties[i] = sum(s.Adult > config.solver_config.regulation_limit ? 1.0 : 0.0 for s in states)
+        processed_data.lost_biomass_1000kg[i] = lost_biomass_1000kg
+        processed_data.fish_disease[i] = fish_disease
+        processed_data.mean_adult_sea_lice_level[i] = mean(s.Adult for s in states)
+        processed_data.mean_rewards_across_sims[i] = mean(rewards)
     end
 
-    return data
+    return processed_data
 
 end
 
 # ----------------------------
 # Display the mean and confidence interval for each lambda and each policy
 # ----------------------------
-function display_reward_metrics(parallel_data, config, display_ci=false)
+function display_reward_metrics(parallel_data, config, display_ci=false, print_sd=false)
 
     # Display the mean and confidence interval for each lambda and each policy
     for λ in config.lambda_values
@@ -215,8 +258,10 @@ function display_reward_metrics(parallel_data, config, display_ci=false)
                     :fish_disease => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_fish_disease,
                     :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_NoTreatment,
                     :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_NoTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], Treatment, 0) for t in x]).mean, digits=2)) => :mean_num_Treatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], Treatment, 0) for t in x]).ci, digits=2)) => :ci_num_Treatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], MechanicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_MechanicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], MechanicalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_MechanicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], ChemicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ChemicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], ChemicalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_ChemicalTreatment,
                     :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ThermalTreatment,
                     :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_ThermalTreatment
                 )
@@ -231,7 +276,8 @@ function display_reward_metrics(parallel_data, config, display_ci=false)
                     :lost_biomass_1000kg => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_lost_biomass_1000kg,
                     :fish_disease => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_fish_disease,
                     :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_NoTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], Treatment, 0) for t in x]).mean, digits=2)) => :mean_num_Treatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], MechanicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_MechanicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], ChemicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ChemicalTreatment,
                     :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ThermalTreatment
                 )
             end
@@ -273,62 +319,65 @@ function display_reward_metrics(parallel_data, config, display_ci=false)
         result = sort(result, :mean_reward, rev=true)
         println(result)
 
-        # Create pivot table format
-        println("\n" * "="^80)
-        println("LAMBDA: $(λ)")
-        println("="^80)
-        
-        # Print header
-        println(@sprintf("%-20s %12s %12s %12s %12s %12s", 
-                        "Policy", "Mean Reward", "Treatment Cost", "Reg. Penalties", "Sea Lice Level", "Fish Disease"))
-        println("-"^80)
-        
-        # Print each policy's results
-        display_ci = true
-        result = combine(
-            data_grouped_by_policy,
-            :reward => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_reward,
-            :reward => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_reward,
-            :mean_rewards_across_sims => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_mean_rewards_across_sims,
-            :mean_rewards_across_sims => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_mean_rewards_across_sims,
-            :treatment_cost => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_treatment_cost,
-            :treatment_cost => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_treatment_cost,
-            :num_regulatory_penalties => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_num_regulatory_penalties,
-            :num_regulatory_penalties => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_num_regulatory_penalties,
-            :mean_adult_sea_lice_level => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_mean_adult_sea_lice_level,
-            :mean_adult_sea_lice_level => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_mean_adult_sea_lice_level,
-            :lost_biomass_1000kg => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_lost_biomass_1000kg,
-            :lost_biomass_1000kg => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_lost_biomass_1000kg,
-            :fish_disease => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_fish_disease,
-            :fish_disease => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_fish_disease
-        )
-        for row in eachrow(result)
-            policy_name = row.policy
-            mean_reward = display_ci ? @sprintf("%.3f±%.3f", row.mean_reward, row.ci_reward) : @sprintf("%.3f", row.mean_reward)
-            treatment_cost = display_ci ? @sprintf("%.3f±%.3f", row.mean_treatment_cost, row.ci_treatment_cost) : @sprintf("%.3f", row.mean_treatment_cost)
-            reg_penalties = display_ci ? @sprintf("%.3f±%.3f", row.mean_num_regulatory_penalties, row.ci_num_regulatory_penalties) : @sprintf("%.3f", row.mean_num_regulatory_penalties)
-            sea_lice = display_ci ? @sprintf("%.3f±%.3f", row.mean_mean_adult_sea_lice_level, row.ci_mean_adult_sea_lice_level) : @sprintf("%.3f", row.mean_mean_adult_sea_lice_level)
-            fish_disease = display_ci ? @sprintf("%.1f±%.1f", row.mean_fish_disease, row.ci_fish_disease) : @sprintf("%.1f", row.mean_fish_disease)
-
-            println(@sprintf("%-20s %12s %12s %12s %12s %12s", 
-                           policy_name, mean_reward, treatment_cost, reg_penalties, sea_lice, fish_disease))
-        end
-        
-        # If treatments column exists, print treatment distribution
-        if :treatments in names(data_filtered)
-            println("\nTreatment Distribution:")
-            println("-"^50)
-            println(@sprintf("%-20s %12s %12s %12s", "Policy", "No Treatment", "Chemical", "Thermal"))
-            println("-"^50)
+        if print_sd
+            # Create pivot table format
+            println("\n" * "="^80)
+            println("LAMBDA: $(λ)")
+            println("="^80)
             
+            # Print header
+            println(@sprintf("%-20s %12s %12s %12s %12s %12s", 
+                            "Policy", "Mean Reward", "Treatment Cost", "Reg. Penalties", "Sea Lice Level", "Fish Disease"))
+            println("-"^80)
+            
+            # Print each policy's results
+            display_ci = true
+            result = combine(
+                data_grouped_by_policy,
+                :reward => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_reward,
+                :reward => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_reward,
+                :mean_rewards_across_sims => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_mean_rewards_across_sims,
+                :mean_rewards_across_sims => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_mean_rewards_across_sims,
+                :treatment_cost => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_treatment_cost,
+                :treatment_cost => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_treatment_cost,
+                :num_regulatory_penalties => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_num_regulatory_penalties,
+                :num_regulatory_penalties => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_num_regulatory_penalties,
+                :mean_adult_sea_lice_level => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_mean_adult_sea_lice_level,
+                :mean_adult_sea_lice_level => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_mean_adult_sea_lice_level,
+                :lost_biomass_1000kg => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_lost_biomass_1000kg,
+                :lost_biomass_1000kg => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_lost_biomass_1000kg,
+                :fish_disease => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_fish_disease,
+                :fish_disease => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_fish_disease
+            )
             for row in eachrow(result)
                 policy_name = row.policy
-                no_treatment = display_ci ? @sprintf("%.1f±%.1f", row.mean_num_NoTreatment, row.ci_num_NoTreatment) : @sprintf("%.1f", row.mean_num_NoTreatment)
-                chemical = display_ci ? @sprintf("%.1f±%.1f", row.mean_num_Treatment, row.ci_num_Treatment) : @sprintf("%.1f", row.mean_num_Treatment)
-                thermal = display_ci ? @sprintf("%.1f±%.1f", row.mean_num_ThermalTreatment, row.ci_num_ThermalTreatment) : @sprintf("%.1f", row.mean_num_ThermalTreatment)
+                mean_reward = display_ci ? @sprintf("%.3f±%.3f", row.mean_reward, row.ci_reward) : @sprintf("%.3f", row.mean_reward)
+                treatment_cost = display_ci ? @sprintf("%.3f±%.3f", row.mean_treatment_cost, row.ci_treatment_cost) : @sprintf("%.3f", row.mean_treatment_cost)
+                reg_penalties = display_ci ? @sprintf("%.3f±%.3f", row.mean_num_regulatory_penalties, row.ci_num_regulatory_penalties) : @sprintf("%.3f", row.mean_num_regulatory_penalties)
+                sea_lice = display_ci ? @sprintf("%.3f±%.3f", row.mean_mean_adult_sea_lice_level, row.ci_mean_adult_sea_lice_level) : @sprintf("%.3f", row.mean_mean_adult_sea_lice_level)
+                fish_disease = display_ci ? @sprintf("%.1f±%.1f", row.mean_fish_disease, row.ci_fish_disease) : @sprintf("%.1f", row.mean_fish_disease)
+
+                println(@sprintf("%-20s %12s %12s %12s %12s %12s", 
+                            policy_name, mean_reward, treatment_cost, reg_penalties, sea_lice, fish_disease))
+            end
+            
+            # If treatments column exists, print treatment distribution
+            if :treatments in names(data_filtered)
+                println("\nTreatment Distribution:")
+                println("-"^50)
+                println(@sprintf("%-20s %12s %12s %12s %12s", "Policy", "No Treatment", "Mechanical", "Chemical", "Thermal"))
+                println("-"^50)
                 
-                println(@sprintf("%-20s %12s %12s %12s", 
-                               policy_name, no_treatment, chemical, thermal))
+                for row in eachrow(result)
+                    policy_name = row.policy
+                    no_treatment = display_ci ? @sprintf("%.1f±%.1f", row.mean_num_NoTreatment, row.ci_num_NoTreatment) : @sprintf("%.1f", row.mean_num_NoTreatment)
+                    mechanical = display_ci ? @sprintf("%.1f±%.1f", row.mean_num_MechanicalTreatment, row.ci_num_MechanicalTreatment) : @sprintf("%.1f", row.mean_num_MechanicalTreatment)
+                    chemical = display_ci ? @sprintf("%.1f±%.1f", row.mean_num_ChemicalTreatment, row.ci_num_ChemicalTreatment) : @sprintf("%.1f", row.mean_num_ChemicalTreatment)
+                    thermal = display_ci ? @sprintf("%.1f±%.1f", row.mean_num_ThermalTreatment, row.ci_num_ThermalTreatment) : @sprintf("%.1f", row.mean_num_ThermalTreatment)
+                    
+                    println(@sprintf("%-20s %12s %12s %12s %12s", 
+                                policy_name, no_treatment, mechanical, chemical, thermal))
+                end
             end
         end
         
@@ -366,7 +415,7 @@ function print_reward_metrics_for_vi_policy(data, config)
          # Add to dataframe
          data.treatment_cost[i] = sum(get_treatment_cost(a) for a in actions)
          data.treatments[i] = treatments
-         data.num_regulatory_penalties[i] = sum(s.SeaLiceLevel > config.regulation_limit ? 1.0 : 0.0 for s in states)
+         data.num_regulatory_penalties[i] = sum(s.SeaLiceLevel > config.solver_config.regulation_limit ? 1.0 : 0.0 for s in states)
          data.mean_rewards_across_sims[i] = mean(rewards)
      end
 
@@ -398,8 +447,10 @@ function print_reward_metrics_for_vi_policy(data, config)
                     :num_regulatory_penalties => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_num_regulatory_penalties,
                     :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_NoTreatment,
                     :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_NoTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], Treatment, 0) for t in x]).mean, digits=2)) => :mean_num_Treatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], Treatment, 0) for t in x]).ci, digits=2)) => :ci_num_Treatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], MechanicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_MechanicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], MechanicalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_MechanicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], ChemicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ChemicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], ChemicalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_ChemicalTreatment,
                     :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ThermalTreatment,
                     :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_ThermalTreatment
                 )
@@ -411,7 +462,8 @@ function print_reward_metrics_for_vi_policy(data, config)
                     :treatment_cost => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_treatment_cost,
                     :num_regulatory_penalties => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_num_regulatory_penalties,
                     :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_NoTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], Treatment, 0) for t in x]).mean, digits=2)) => :mean_num_Treatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], MechanicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_MechanicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t[1], ChemicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ChemicalTreatment,
                     :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ThermalTreatment
                 )
             end
@@ -476,7 +528,12 @@ function print_treatment_frequency(data, config)
         for policy in policies
 
             # Initialize the inner dictionary for this policy
-            treatment_counts[policy] = Dict{String, Vector{Int}}("NoTreatment" => [], "Treatment" => [], "ThermalTreatment" => [])
+            treatment_counts[policy] = Dict{String, Vector{Int}}(
+                "NoTreatment" => [],
+                "MechanicalTreatment" => [],
+                "ChemicalTreatment" => [],
+                "ThermalTreatment" => [],
+            )
 
             # Get histories for this policy
             data_policy = filter(row -> row.policy == policy, data_lambda)
@@ -494,7 +551,8 @@ function print_treatment_frequency(data, config)
 
                 # Count the number of times each treatment is taken
                 push!(treatment_counts[policy]["NoTreatment"], get(treatment_count, NoTreatment, 0))
-                push!(treatment_counts[policy]["Treatment"], get(treatment_count, Treatment, 0))
+                push!(treatment_counts[policy]["MechanicalTreatment"], get(treatment_count, MechanicalTreatment, 0))
+                push!(treatment_counts[policy]["ChemicalTreatment"], get(treatment_count, ChemicalTreatment, 0))
                 push!(treatment_counts[policy]["ThermalTreatment"], get(treatment_count, ThermalTreatment, 0))
 
             end
@@ -508,11 +566,9 @@ function print_treatment_frequency(data, config)
             push!(treatment_data, (
                 policy = policy,
                 NoTreatment = mean_and_ci(counts["NoTreatment"]).mean,
-                # NoTreatment_ci = mean_and_ci(counts["NoTreatment"]).ci,
-                Treatment = mean_and_ci(counts["Treatment"]).mean,
-                # Treatment_ci = mean_and_ci(counts["Treatment"]).ci,
+                MechanicalTreatment = mean_and_ci(counts["MechanicalTreatment"]).mean,
+                ChemicalTreatment = mean_and_ci(counts["ChemicalTreatment"]).mean,
                 ThermalTreatment = mean_and_ci(counts["ThermalTreatment"]).mean,
-                # ThermalTreatment_ci = mean_and_ci(counts["ThermalTreatment"]).ci
             ))
         end
         

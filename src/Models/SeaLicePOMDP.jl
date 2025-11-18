@@ -14,9 +14,7 @@ using Parameters
 using Discretizers
 using Random
 
-# Include shared types first
-include("../Utils/SharedTypes.jl")
-include("../Utils/Utils.jl")
+
 
 # -------------------------
 # State, Observation, Action
@@ -44,9 +42,13 @@ end
     reward_lambdas::Vector{Float64} = [0.5, 0.5, 0.0, 0.0, 0.0] # [treatment, regulatory, biomass, health, sea_lice]
 	costOfTreatment::Float64 = 10.0
 	growthRate::Float64 = 0.3
-	rho::Float64 = 0.95
     discount_factor::Float64 = 0.95
     full_observability_solver::Bool = false
+    location::String = "north"
+    reproduction_rate::Float64 = 2.0
+    motile_ratio::Float64 = 1.0
+    sessile_ratio::Float64 = 1.0
+    base_temperature::Float64 = 10.0
 
     # Regulation parameters
     regulation_limit::Float64 = 0.5
@@ -61,7 +63,7 @@ end
     W0::Float64 = 0.1                  # weight centering (kg)
 
     # Count bounds
-    sea_lice_bounds::Tuple{Float64, Float64} = (0.0, 5.0)
+    sea_lice_bounds::Tuple{Float64, Float64} = (0.0, 10.0)
     initial_bounds::Tuple{Float64, Float64} = (0.0, 0.25)
     initial_mean::Float64 = 0.13
     
@@ -74,14 +76,14 @@ end
     sea_lice_range::Vector{Float64} = collect(sea_lice_bounds[1]:discretization_step:sea_lice_bounds[2])
     initial_range::Vector{Float64} = collect(initial_bounds[1]:discretization_step:initial_bounds[2])
     lindisc::LinearDiscretizer = LinearDiscretizer(collect(sea_lice_bounds[1]:discretization_step:(sea_lice_bounds[2]+discretization_step)))
-    catdisc::CategoricalDiscretizer = CategoricalDiscretizer([NoTreatment, Treatment, ThermalTreatment])
+    catdisc::CategoricalDiscretizer = CategoricalDiscretizer([NoTreatment, MechanicalTreatment, ChemicalTreatment, ThermalTreatment])
 end
 
 # -------------------------
 # POMDPs.jl Interface
 # -------------------------
 POMDPs.states(pomdp::SeaLicePOMDP) = [SeaLiceState(i) for i in pomdp.sea_lice_range]
-POMDPs.actions(pomdp::SeaLicePOMDP) = [NoTreatment, Treatment, ThermalTreatment]
+POMDPs.actions(pomdp::SeaLicePOMDP) = [NoTreatment, MechanicalTreatment, ChemicalTreatment, ThermalTreatment]
 POMDPs.observations(pomdp::SeaLicePOMDP) = [SeaLiceObservation(i) for i in pomdp.sea_lice_range]
 POMDPs.discount(pomdp::SeaLicePOMDP) = pomdp.discount_factor
 POMDPs.isterminal(pomdp::SeaLicePOMDP, s::SeaLiceState) = false
@@ -94,15 +96,24 @@ POMDPs.obsindex(pomdp::SeaLicePOMDP, o::SeaLiceObservation) = encode(pomdp.lindi
 # -------------------------
 function POMDPs.transition(pomdp::SeaLicePOMDP, s::SeaLiceState, a::Action)
 
-    # Apply treatment
+    # Apply treatment in raw space
     rf_a, rf_m, rf_s = get_treatment_effectiveness(a)
-    adult = s.SeaLiceLevel * (1 - rf_a)
+    adult_raw = max(s.SeaLiceLevel * (1 - rf_a), 0.0)
+    motile_raw = max(adult_raw * pomdp.motile_ratio * (1 - rf_m), 0.0)
+    sessile_raw = max(adult_raw * pomdp.sessile_ratio * (1 - rf_s), 0.0)
 
-    # Calculate the mean of the transition distribution
-    μ = exp(pomdp.growthRate) * adult
+    # Predict next adult level using the biological drift
+    pred_adult_raw, _, _ = predict_next_abundances(
+        adult_raw,
+        motile_raw,
+        sessile_raw,
+        pomdp.base_temperature,
+        pomdp.location,
+        pomdp.reproduction_rate,
+    )
 
     # Clamp the mean to the range of the sea lice range
-    μ = clamp(μ, pomdp.sea_lice_bounds...)
+    μ = clamp(pred_adult_raw, pomdp.sea_lice_bounds...)
 
     # Get the distribution
     dist = truncated(Normal(μ, pomdp.adult_sd), pomdp.sea_lice_bounds...)
@@ -202,24 +213,65 @@ function POMDPs.reward(pomdp::SeaLicePOMDP, s::SeaLiceState, a::Action)
 
     λ_trt, λ_reg, λ_bio, λ_health, λ_sea_lice = pomdp.reward_lambdas
 
-    # Treatment cost
+    # SeaLicePOMDP stores state in natural space (not log space)
+    adult_level = s.SeaLiceLevel
+
+    # === 1. DIRECT TREATMENT COSTS ===
     treatment_cost = get_treatment_cost(a)
 
-    # Regulatory penalty
-    over_limit = s.SeaLiceLevel > pomdp.regulation_limit
-    if (over_limit && a == NoTreatment)
-        regulatory_penalty = 1000.0
+    # === 2. REGULATORY PENALTY (exponential above limit) ===
+    # Reflects escalating consequences: fines, production caps, license restrictions
+    if adult_level > pomdp.regulation_limit
+        excess_ratio = adult_level / pomdp.regulation_limit
+        # Penalty grows as: 100 * (excess%)^2 * ratio
+        # At 0.6 (20% over): 100 * 0.2^2 * 1.2 = 4.8
+        # At 0.75 (50% over): 100 * 0.5^2 * 1.5 = 37.5
+        # At 1.0 (100% over): 100 * 1.0^2 * 2.0 = 200
+        regulatory_penalty = 100.0 # * ((excess_ratio - 1.0)^2) * excess_ratio
     else
-        regulatory_penalty = 15.0
+        regulatory_penalty = 0.0
     end
 
-    # Lost biomass (not used in this simplified model)
-    lost_biomass = 0
+    # === 3. BIOMASS LOSS ===
+    # 3a. Mortality loss (acute) - approximation for typical farm
+    # Typical: 200k fish at 2kg avg weight
+    mortality_biomass_loss = get_treatment_mortality_rate(a) * 400.0
 
-    # Fish disease penalty
-    fish_disease = get_fish_disease(a) + 100.0 * s.SeaLiceLevel
+    # 3b. Growth reduction from sea lice (chronic)
+    # Research shows 3-16% biomass growth lost per cycle above ~0.5 lice/fish
+    # Using 10% per week at high infestation as conservative estimate
+    if adult_level > 0.5
+        lice_severity = min((adult_level - 0.5) / 1.5, 1.0)  # 0 at 0.5, 1.0 at 2.0+
+        # Typical farm mid-cycle biomass ~400 tonnes
+        growth_biomass_loss = 400.0 * 0.10 * lice_severity
+    else
+        growth_biomass_loss = 0.0
+    end
 
-    return - (λ_health * fish_disease + λ_trt * treatment_cost + λ_bio * lost_biomass + λ_reg * regulatory_penalty + λ_sea_lice * s.SeaLiceLevel)
+    total_biomass_loss = mortality_biomass_loss + growth_biomass_loss
+
+    # === 4. FISH HEALTH (treatment side effects only) ===
+    # Stress, injuries, disease susceptibility from treatments
+    # Does NOT include sea lice damage (that's in sea_lice_penalty)
+    fish_health_penalty = get_fish_disease(a)
+
+    # === 5. SEA LICE BURDEN (chronic parasite damage) ===
+    # Separate from growth: osmoregulatory stress, secondary infections, welfare
+    # Scales non-linearly (exponentially worse at high levels)
+    # At 0.1: 0.10
+    # At 0.5: 0.50
+    # At 1.0: 1.00 × 1.10 = 1.10 (milder)
+    # At 2.0: 2.00 × 1.30 = 2.60 (much milder than 3.50)
+    sea_lice_penalty = adult_level * (1.0 + 0.2 * max(0, adult_level - 0.5))
+
+    # === TOTAL REWARD ===
+    return -(
+        λ_trt * treatment_cost +
+        λ_reg * regulatory_penalty +
+        λ_bio * total_biomass_loss +
+        λ_health * fish_health_penalty +
+        λ_sea_lice * sea_lice_penalty
+    )
 end
 
 # -------------------------

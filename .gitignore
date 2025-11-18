@@ -1,8 +1,6 @@
 Quick_Access/
 NorthernNorway/
 results/
-Manifest.toml
-Project.toml
 archieve/
 data/.DS_Store
 data/processed/
@@ -16,3 +14,5 @@ src/Tests/NUS_SARSOP.pomdp
 .vscode/launch.json
 .vscode/settings.json
 documentation/
+src/TestVI.jl
+logs/

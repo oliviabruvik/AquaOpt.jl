@@ -1,6 +1,3 @@
-include("../Utils/Config.jl")
-include("../Models/SeaLiceLogPOMDP.jl")
-include("../Models/SeaLicePOMDP.jl")
 
 using POMDPs
 using POMDPModels
@@ -21,36 +18,45 @@ function create_pomdp_mdp(λ, config)
     pomdp_mdp_dir = joinpath(config.experiment_dir, "pomdp_mdp")
     mkpath(pomdp_mdp_dir)
 
-    if config.log_space
+    sim_cfg = config.simulation_config
+    adult_mean = max(sim_cfg.adult_mean, 1e-6)
+    motile_ratio = sim_cfg.motile_mean / adult_mean
+    sessile_ratio = sim_cfg.sessile_mean / adult_mean
+    base_temperature = get_location_params(config.solver_config.location).T_mean
+
+    if config.solver_config.log_space
         pomdp = SeaLiceLogPOMDP(
             lambda=λ,
-            reward_lambdas=config.reward_lambdas,
-            costOfTreatment=config.costOfTreatment,
-            growthRate=config.growthRate,
-            rho=config.rho,
-            discount_factor=config.discount_factor,
-            discretization_step=config.discretization_step,
-            adult_sd=abs(log(config.raw_space_sampling_sd)),
-            regulation_limit=config.regulation_limit,
-            full_observability_solver=config.full_observability_solver,
+            reward_lambdas=config.solver_config.reward_lambdas,
+            costOfTreatment=config.solver_config.costOfTreatment,
+            discount_factor=config.solver_config.discount_factor,
+            discretization_step=config.solver_config.discretization_step,
+            adult_sd=abs(log(config.solver_config.raw_space_sampling_sd)),
+            regulation_limit=config.solver_config.regulation_limit,
+            full_observability_solver=config.solver_config.full_observability_solver,
+            location=config.solver_config.location,
+            reproduction_rate=config.solver_config.reproduction_rate,
+            motile_ratio=motile_ratio,
+            sessile_ratio=sessile_ratio,
+            base_temperature=base_temperature,
         )
     else
         pomdp = SeaLicePOMDP(
             lambda=λ,
-            reward_lambdas=config.reward_lambdas,
-            costOfTreatment=config.costOfTreatment,
-            growthRate=config.growthRate,
-            rho=config.rho,
-            discount_factor=config.discount_factor,
-            discretization_step=config.discretization_step,
-            adult_sd=config.raw_space_sampling_sd,
-            regulation_limit=config.regulation_limit,
-            full_observability_solver=config.full_observability_solver,
+            reward_lambdas=config.solver_config.reward_lambdas,
+            costOfTreatment=config.solver_config.costOfTreatment,
+            discount_factor=config.solver_config.discount_factor,
+            discretization_step=config.solver_config.discretization_step,
+            adult_sd=config.solver_config.raw_space_sampling_sd,
+            regulation_limit=config.solver_config.regulation_limit,
+            full_observability_solver=config.solver_config.full_observability_solver,
+            location=config.solver_config.location,
+            reproduction_rate=config.solver_config.reproduction_rate,
+            motile_ratio=motile_ratio,
+            sessile_ratio=sessile_ratio,
+            base_temperature=base_temperature,
         )
     end
-
-    @info "Created POMDP"
-    @info "POMDP: $pomdp"
 
     mdp = UnderlyingMDP(pomdp)
 
@@ -58,13 +64,13 @@ function create_pomdp_mdp(λ, config)
     pomdp_mdp_filename = "pomdp_mdp_$(λ)_lambda"
     pomdp_mdp_file_path = joinpath(pomdp_mdp_dir, "$(pomdp_mdp_filename).jld2")
     @save pomdp_mdp_file_path pomdp mdp
-    @info "Saved POMDP and MDP to file $(pomdp_mdp_file_path)"
+    # @info "Saved POMDP and MDP to file $(pomdp_mdp_file_path)"
 
     # Save POMDP as POMDPX file for NUS SARSOP
     pomdpx_file_path = joinpath(pomdp_mdp_dir, "pomdp.pomdpx")
     pomdpx = POMDPXFile(pomdpx_file_path)
-    POMDPXFiles.write(pomdp, pomdpx)
-    @info "Saved POMDP as POMDPX file $(pomdpx_file_path)"
+    # POMDPXFiles.write(pomdp, pomdpx)
+    # @info "Saved POMDP as POMDPX file $(pomdpx_file_path)"
 
     return pomdp, mdp
 end
@@ -89,7 +95,9 @@ function generate_mdp_pomdp_policies(algorithm, config)
         # Save policy, pomdp, and mdp to file
         policy_pomdp_mdp_filename = "policy_pomdp_mdp_$(λ)_lambda"
         @save joinpath(policies_dir, "$(policy_pomdp_mdp_filename).jld2") policy pomdp mdp
-        @info "Saved policy, pomdp, and mdp to file $(joinpath(policies_dir, "$(policy_pomdp_mdp_filename).jld2"))"
+        #@info "Saved policy, pomdp, and mdp to file $(joinpath(policies_dir, "$(policy_pomdp_mdp_filename).jld2"))"
+
+        return policy, pomdp, mdp
     end
 end
 
@@ -149,7 +157,7 @@ end
 
 # Always Treat action
 function POMDPs.action(policy::AlwaysTreatPolicy, b)
-    return Treatment
+    return MechanicalTreatment
 end
 
 function POMDPs.updater(policy::AlwaysTreatPolicy)
@@ -165,7 +173,7 @@ end
 
 # Random action
 function POMDPs.action(policy::RandomPolicy, b)
-    return rand((Treatment, NoTreatment))
+    return rand((NoTreatment, MechanicalTreatment, ChemicalTreatment, ThermalTreatment))
 end
 
 function POMDPs.updater(policy::RandomPolicy)
@@ -195,16 +203,17 @@ function POMDPs.action(policy::HeuristicPolicy, b)
     # If the probability of the current sea lice level being above the threshold is greater than the thermal threshold, choose ThermalTreatment
     if prob_above_threshold > policy.heuristic_config.belief_threshold_thermal
         return ThermalTreatment
-    # If the probability of the current sea lice level being above the threshold is greater than the mechanical threshold, choose Treatment
+    # Chemical treatment for mid-level infestations
+    elseif prob_above_threshold > policy.heuristic_config.belief_threshold_chemical
+        return ChemicalTreatment
+    # If the probability of the current sea lice level being above the threshold is greater than the mechanical threshold, choose MechanicalTreatment
     elseif prob_above_threshold > policy.heuristic_config.belief_threshold_mechanical
-        return Treatment
+        return MechanicalTreatment
     # Otherwise, choose NoTreatment
     else
         return NoTreatment
     end
 end
-
-# TODO: plot heuristic bvec with imageMap
 
 # Function to decide whether we choose the action or randomize
 function heuristicChooseAction(policy::HeuristicPolicy, b, use_cdf=true)
@@ -222,7 +231,7 @@ function heuristicChooseAction(policy::HeuristicPolicy, b, use_cdf=true)
     if use_cdf
         # Method 1: Calculate probability of being above threshold
         prob_above_threshold = sum(b[i] for (i, s) in enumerate(state_space) if s.SeaLiceLevel > threshold)
-        return prob_above_threshold > policy.heuristic_config.belief_threshold
+        return prob_above_threshold > policy.heuristic_config.belief_threshold_mechanical
     else
         # Method 2: Use mode of belief vector
         mode_sealice_level_index = argmax(b)
@@ -243,21 +252,50 @@ struct AdaptorPolicy <: Policy
     lofi_policy::Policy
     pomdp::POMDP
     location::String
+    reproduction_rate::Float64
 end
 
 # Adaptor action
 function POMDPs.action(policy::AdaptorPolicy, b)
 
-    # Predict the next state
-    pred_adult, pred_motile, pred_sessile = predict_next_abundances(b.μ[1][1], b.μ[3][1], b.μ[2][1], b.μ[4][1], policy.location)
-    adult_sd = sqrt(b.Σ[1,1])
+    # Predict the next state (always in raw space from the biological model)
+    # Belief means are ordered [Adult, Motile, Sessile, Temperature]
+    pred_adult, pred_motile, pred_sessile = predict_next_abundances(b.μ[1][1], b.μ[2][1], b.μ[3][1], b.μ[4][1], policy.location, policy.reproduction_rate)
+    adult_variance = b.Σ[1,1]  # Variance in raw space
 
     # Clamp predictions to be positive
     pred_adult = max(pred_adult, 1e-3)
 
+    # Convert to log space if needed for the policy
     if policy.pomdp isa SeaLiceLogPOMDP
-        pred_adult = log(pred_adult)
-        adult_sd = abs(log(adult_sd))
+
+        # Calculate CV^2: Coefficient of Variation squared
+        # IMPORTANT: Floor the denominator to prevent CV^2 explosion when pred_adult → 0
+        # Using floor of 0.05^2 = 0.0025 caps maximum CV^2 when mean is very small
+        # This prevents the log-space uncertainty from becoming unreasonably large
+        # With typical adult_variance ≈ 0.0013, this caps CV^2 at ~0.52, giving σ_log ≈ 0.65
+        pred_adult_squared_floored = max(pred_adult^2, 0.0025)
+
+        # Ensure non-negative variance (numerical stability)
+        cv_squared = max(adult_variance, 0.0) / pred_adult_squared_floored
+
+        # Lognormal Formula for Log-Space SD (σ_log)
+        # σ_log = sqrt(ln(1 + CV^2))
+        # Ensure log argument is positive (cv_squared >= 0, so 1 + cv_squared >= 1.0)
+        adult_sd_log = sqrt(log(1.0 + cv_squared))
+
+        # Use log of median (not mean) for point prediction
+        # Median of log-normal: log(μ) (no bias correction)
+        # This ensures better alignment with discretized states
+        pred_adult_log = log(pred_adult)
+
+        # Update the variables
+        pred_adult = pred_adult_log
+        adult_sd = adult_sd_log
+    else
+        # Ensure non-negative variance (numerical stability)
+        # Kalman filter covariance can become slightly negative due to floating-point errors
+        adult_sd = sqrt(max(adult_variance, 0.0))
     end
 
     # Get next action from policy
@@ -284,28 +322,26 @@ end
 # ----------------------------
 # LOFI Adaptor Policy
 # ----------------------------
-struct LOFIAdaptorPolicy <: Policy
-    lofi_policy::Policy
-    pomdp::POMDP
+struct LOFIAdaptorPolicy{LP <: Policy, P <: POMDP} <: Policy
+    lofi_policy::LP
+    pomdp::P
+end
+
+function POMDPs.action(policy::LOFIAdaptorPolicy{<:ValueIterationPolicy}, b)
+    mode_idx = argmax(b.b)
+    all_states = states(policy.pomdp)
+    state_with_highest_probability = all_states[mode_idx]
+
+    # Assertions
+    @assert state_with_highest_probability in states(policy.pomdp)
+    @assert length(b.b) == length(states(policy.pomdp))
+    
+    # Get next action from policy
+    return action(policy.lofi_policy, state_with_highest_probability)
 end
 
 # Adaptor action
 function POMDPs.action(policy::LOFIAdaptorPolicy, b)
-
-    # Get next action from policy
-    if policy.lofi_policy isa ValueIterationPolicy
-        mode_idx = argmax(b.b)
-        all_states = states(policy.pomdp)
-        state_with_highest_probability = all_states[mode_idx]
-
-        # Assertions
-        @assert state_with_highest_probability in states(policy.pomdp)
-        @assert length(b.b) == length(states(policy.pomdp))
-        
-        # Get next action from policy
-        return action(policy.lofi_policy, state_with_highest_probability)
-    end
-
     # Discretize alpha vectors (representation of utility over belief states per action)
     return action(policy.lofi_policy, b)
 end
@@ -318,13 +354,14 @@ struct FullObservabilityAdaptorPolicy <: Policy
     pomdp::POMDP
     mdp::MDP
     location::String
+    reproduction_rate::Float64
 end
 
 # Adaptor action
 function POMDPs.action(policy::FullObservabilityAdaptorPolicy, s)
 
     # Predict the next state
-    pred_adult, pred_motile, pred_sessile = predict_next_abundances(s.sessile, s.motile, s.adult, s.temp, policy.location)
+    pred_adult, pred_motile, pred_sessile = predict_next_abundances(s.Adult, s.Motile, s.Sessile, s.Temperature, policy.location, policy.reproduction_rate)
 
     # Clamp predictions to be positive
     pred_adult = max(pred_adult, 1e-3)

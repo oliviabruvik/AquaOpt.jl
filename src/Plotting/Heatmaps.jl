@@ -1,6 +1,6 @@
 using Plots
 using JLD2
-plotlyjs()  # Set the backend to PlotlyJS
+
 
 # ----------------------------
 # Plot 9: Treatment Decision Heatmap
@@ -29,7 +29,7 @@ function plot_treatment_heatmap(algorithm, config)
         @load policy_file_path policy pomdp mdp
 
         # Create state space grid
-        if config.log_space
+        if config.solver_config.log_space
             states = [SeaLiceLogState(x) for x in pomdp.sea_lice_range]
             if y_vals === nothing
                 y_vals = [exp(s.SeaLiceLevel) for s in states]  # Convert back to original space for y-axis
@@ -70,7 +70,7 @@ function plot_treatment_heatmap(algorithm, config)
         ## Get a hundred actions to see percentage of treatment decisions
         function getPercentageOfTreatmentDecisions(policy, s)
             actions = [getAction(s, policy) for _ in 1:100]
-            return sum(actions .== Treatment) / 100
+            return sum(actions .== MechanicalTreatment) / 100
         end
 
         percentage_of_treatment_decisions = [getPercentageOfTreatmentDecisions(policy, s) for s in states]
@@ -94,10 +94,10 @@ function plot_treatment_heatmap(algorithm, config)
         lambda_values,      # x-axis: lambda values
         y_vals,            # y-axis: sea lice levels
         treatment_matrix,  # matrix: states × lambdas
-        title="Treatment Decision Heatmap: λ vs Sea Lice Level",
+        title="Mechanical Treatment Decision Heatmap: λ vs Sea Lice Level",
         xlabel="λ (Cost-Benefit Trade-off Parameter)",
         ylabel="Sea Lice Level (Avg. Adult Female Lice per Fish)",
-        colorbar_title="Treatment Decision",
+        colorbar_title="Mechanical Treatment Decision",
         c=:RdYlBu,  # Red-Yellow-Blue colormap (red=treat, blue=no treat)
         aspect_ratio=:auto
     )
@@ -190,7 +190,7 @@ function plot_simulation_treatment_heatmap(algorithm, config; use_observations=f
                 if sum(in_bin) > 0
                     # Calculate treatment frequency for this bin
                     actions_in_bin = all_actions[in_bin]
-                    treatment_freq = sum(a == Treatment for a in actions_in_bin) / length(actions_in_bin)
+                    treatment_freq = sum(a == MechanicalTreatment for a in actions_in_bin) / length(actions_in_bin)
                     treatment_freq_matrix[bin_idx, i] = treatment_freq  # Row = bin, Column = lambda
                 else
                     # No data in this bin

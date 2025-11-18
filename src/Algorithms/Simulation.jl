@@ -12,12 +12,7 @@ using Base.Sys
 using StatsBase: std
 using Random
 
-include("../../src/Utils/Utils.jl")
-include("../../src/Models/SeaLiceLogPOMDP.jl")
-include("../../src/Models/SeaLicePOMDP.jl")
-include("../../src/Models/SimulationPOMDP.jl")
-include("../../src/Models/KalmanFilter.jl")
-include("../../src/Algorithms/Policies.jl")
+
 
 # ----------------------------
 # Initialize belief function
@@ -26,7 +21,7 @@ include("../../src/Algorithms/Policies.jl")
 # Returns a tuple of Normal distributions for each state component.
 # ----------------------------
 function initialize_belief(sim_pomdp, config)
-    if config.high_fidelity_sim
+    if config.simulation_config.high_fidelity_sim
         return (
             sim_pomdp.adult_mean + sim_pomdp.adult_dist, # adult
             sim_pomdp.motile_mean + sim_pomdp.motile_dist, # motile
@@ -43,51 +38,52 @@ end
 # ----------------------------
 function create_sim_pomdp(config, λ)
     # Simulate policies on a POMDP with a larger state space
-    # for a realistic evaluation of performance. 
-    if config.high_fidelity_sim
+    # for a realistic evaluation of performance.
+    if config.simulation_config.high_fidelity_sim
         return SeaLiceSimPOMDP(
             lambda=λ,
-            reward_lambdas=config.reward_lambdas,
-            costOfTreatment=config.costOfTreatment,
-            rho=config.rho,
-            discount_factor=config.discount_factor,
+            reward_lambdas=config.simulation_config.sim_reward_lambdas,
+            costOfTreatment=config.solver_config.costOfTreatment,
+            reproduction_rate=config.solver_config.reproduction_rate,
+            discount_factor=config.solver_config.discount_factor,
             # SimPOMDP parameters
-            adult_mean=config.adult_mean,
-            motile_mean=config.motile_mean,
-            sessile_mean=config.sessile_mean,
-            adult_sd=config.adult_sd,
-            motile_sd=config.motile_sd,
-            sessile_sd=config.sessile_sd,
-            temp_sd=config.temp_sd,
-            location=config.location,
+            adult_mean=config.simulation_config.adult_mean,
+            motile_mean=config.simulation_config.motile_mean,
+            sessile_mean=config.simulation_config.sessile_mean,
+            adult_sd=config.simulation_config.adult_sd,
+            motile_sd=config.simulation_config.motile_sd,
+            sessile_sd=config.simulation_config.sessile_sd,
+            temp_sd=config.simulation_config.temp_sd,
+            location=config.solver_config.location,
         )
     else
         # Use the same POMDP type that policies were trained on
-        if config.log_space
+        if config.solver_config.log_space
             return SeaLiceLogPOMDP(
                 lambda=λ,
-                reward_lambdas=config.reward_lambdas,
-                costOfTreatment=config.costOfTreatment,
-                growthRate=config.growthRate,
-                rho=config.rho,
-                discount_factor=config.discount_factor,
-                discretization_step=config.discretization_step,
-                adult_sd=abs(log(config.raw_space_sampling_sd)),
-                regulation_limit=config.regulation_limit,
-                full_observability_solver=config.full_observability_solver,
+                reward_lambdas=config.solver_config.reward_lambdas,
+                costOfTreatment=config.solver_config.costOfTreatment,
+                discount_factor=config.solver_config.discount_factor,
+                discretization_step=config.solver_config.discretization_step,
+                adult_sd=abs(log(config.solver_config.raw_space_sampling_sd)),
+                regulation_limit=config.solver_config.regulation_limit,
+                full_observability_solver=config.solver_config.full_observability_solver,
+                location=config.solver_config.location,
+                reproduction_rate=config.solver_config.reproduction_rate,
+                motile_ratio=motile_ratio,
+                sessile_ratio=sessile_ratio,
+                base_temperature=base_temperature,
             )
         else
             return SeaLicePOMDP(
                 lambda=λ,
-                reward_lambdas=config.reward_lambdas,
-                costOfTreatment=config.costOfTreatment,
-                growthRate=config.growthRate,
-                rho=config.rho,
-                discount_factor=config.discount_factor,
-                discretization_step=config.discretization_step,
-                adult_sd=config.raw_space_sampling_sd,
-                regulation_limit=config.regulation_limit,
-                full_observability_solver=config.full_observability_solver,
+                reward_lambdas=config.simulation_config.sim_reward_lambdas,
+                costOfTreatment=config.solver_config.costOfTreatment,
+                discount_factor=config.solver_config.discount_factor,
+                discretization_step=config.solver_config.discretization_step,
+                adult_sd=config.solver_config.raw_space_sampling_sd,
+                regulation_limit=config.solver_config.regulation_limit,
+                full_observability_solver=config.solver_config.full_observability_solver,
             )
         end
     end
@@ -117,7 +113,7 @@ function simulate_policy(algorithm, config)
         @load joinpath(policies_dir, "$(policy_pomdp_mdp_filename).jld2") policy pomdp mdp
 
         # Create adaptor policy
-        adaptor_policy = AdaptorPolicy(policy, pomdp, config.location)
+        adaptor_policy = AdaptorPolicy(policy, pomdp, config.solver_config.location, config.solver_config.reproduction_rate)
 
         # Simulate policy
         histories[λ] = run_simulation(adaptor_policy, mdp, pomdp, config, algorithm)
@@ -147,12 +143,12 @@ function run_simulation(policy, mdp, pomdp, config, algorithm)
     sim_pomdp = create_sim_pomdp(config, pomdp.lambda)
 
     # Create simulator
-    # sim = RolloutSimulator(max_steps=config.steps_per_episode)
-    hr = HistoryRecorder(max_steps=config.steps_per_episode)
-    updater = build_kf(sim_pomdp, ekf_filter=config.ekf_filter)
+    # sim = RolloutSimulator(max_steps=config.simulation_config.steps_per_episode)
+    hr = HistoryRecorder(max_steps=config.simulation_config.steps_per_episode)
+    updater = build_kf(sim_pomdp, ekf_filter=config.simulation_config.ekf_filter)
 
     # Run simulation for each episode
-    for episode in 1:config.num_episodes
+    for episode in 1:config.simulation_config.num_episodes
 
         # Get initial belief and state
         initial_belief = initialize_belief(sim_pomdp, config)
@@ -178,15 +174,15 @@ function run_all_episodes(policy, mdp, pomdp, config, algorithm)
     sim_pomdp = create_sim_pomdp(config, pomdp.lambda)
 
     # Create simulator
-    # sim = RolloutSimulator(max_steps=config.steps_per_episode)
-    hr = HistoryRecorder(max_steps=config.steps_per_episode)
-    updater = build_kf(sim_pomdp, ekf_filter=config.ekf_filter)
+    # sim = RolloutSimulator(max_steps=config.simulation_config.steps_per_episode)
+    hr = HistoryRecorder(max_steps=config.simulation_config.steps_per_episode)
+    updater = build_kf(sim_pomdp, ekf_filter=config.simulation_config.ekf_filter)
 
     # Create the list of Sim objects
     sim_list = []
 
     # Add Sim objects for each episode
-    for sim_number in 1:config.num_episodes
+    for sim_number in 1:config.simulation_config.num_episodes
         seed = starting_seed + sim_number
 
         # Get initial belief and state
@@ -201,8 +197,8 @@ function run_all_episodes(policy, mdp, pomdp, config, algorithm)
             initial_belief,      # Initial belief
             initial_state;       # Initial state
             rng=MersenneTwister(seed),
-            max_steps=config.steps_per_episode,
-            metadata=Dict(:policy => algorithm.solver_name, :lambda => pomdp.lambda, :seed => sim_number)
+            max_steps=config.simulation_config.steps_per_episode,
+            metadata=Dict(:policy => algorithm.solver_name, :lambda => pomdp.lambda, :seed => seed, :episode_number => sim_number)
         ))
     end
 
@@ -224,11 +220,11 @@ function run_all_episodes(policy, mdp, pomdp, config, algorithm)
 
     return data
 end
-
 # ----------------------------
 # Simulate all policies in parallel
 # ----------------------------
 function simulate_all_policies(algorithms, config)
+    rng = MersenneTwister(1)
 
     # Defining parameters for parallel simulation
     starting_seed = 1
@@ -241,40 +237,32 @@ function simulate_all_policies(algorithms, config)
 
         # Create simulator POMDP
         sim_pomdp = create_sim_pomdp(config, λ)
-        @info "Created simulator POMDP"
-        @info "Simulator POMDP: $sim_pomdp"
+        @info "Created simulator POMDP with reward lambdas: $(sim_pomdp.reward_lambdas)"
 
         # Create simulator
-        hr = HistoryRecorder(max_steps=config.steps_per_episode)
-        if config.high_fidelity_sim
-            @info "Simulating high fidelity"
-            @info "Building Kalman filter with ekf_filter: $config.ekf_filter"
-            updater = build_kf(sim_pomdp, ekf_filter=config.ekf_filter)
+        hr = HistoryRecorder(max_steps=config.simulation_config.steps_per_episode)
+        if config.simulation_config.high_fidelity_sim
+            updater = build_kf(sim_pomdp, ekf_filter=config.simulation_config.ekf_filter)
         else
-            @info "Simulating low fidelity"
-            @info "Building Discrete updater"
             updater = DiscreteUpdater(sim_pomdp)
         end
 
         # Load policy, pomdp, and mdp
         for algo in algorithms
-            @info "Adding sim objects for $(algo.solver_name)"
             policy_pomdp_mdp_filename = "policy_pomdp_mdp_$(λ)_lambda"
             policy_pomdp_mdp_filepath = joinpath(config.policies_dir, "$(algo.solver_name)", "$(policy_pomdp_mdp_filename).jld2")
-            @info "Loading policy, pomdp, and mdp from $(policy_pomdp_mdp_filepath)"
+            # @info "Loading policy, pomdp, and mdp from $(policy_pomdp_mdp_filepath)"
             @load policy_pomdp_mdp_filepath policy pomdp mdp
 
             # Create adaptor policy
-            if config.high_fidelity_sim
-                @info "Creating adaptor policy for high fidelity"
-                adaptor_policy = AdaptorPolicy(policy, pomdp, config.location)
+            if config.simulation_config.high_fidelity_sim
+                adaptor_policy = AdaptorPolicy(policy, pomdp, config.solver_config.location, config.solver_config.reproduction_rate)
             else
-                @info "Creating adaptor policy for low fidelity"
                 adaptor_policy = LOFIAdaptorPolicy(policy, pomdp)
             end
 
             # Add Sim objects for each episode
-            for sim_number in 1:config.num_episodes
+            for sim_number in 1:config.simulation_config.num_episodes
                 seed = starting_seed + sim_number
 
                 # Get initial belief and state
@@ -288,13 +276,14 @@ function simulate_all_policies(algorithms, config)
                     updater,                        # Custom updater
                     initial_belief,                 # Initial belief
                     initial_state;                  # Initial state
-                    rng=MersenneTwister(seed),
-                    max_steps=config.steps_per_episode,
-                    metadata=Dict(:policy => algo.solver_name, :lambda => λ, :seed => sim_number)
+                    rng=Random.seed!(copy(rng), seed),
+                    max_steps=config.simulation_config.steps_per_episode,
+                    metadata=Dict(:policy => algo.solver_name, :lambda => λ, :seed => seed, :episode_number => sim_number)
                 ))
             end
         end
     end
+   # Main.@infiltrate
 
     # Run the simulations in parallel
     data = run_parallel(sim_list, proc_warn=false) do sim, hist
@@ -338,10 +327,10 @@ function simulate_all_policies_on_mdp(algorithms, config)
             @load joinpath(config.policies_dir, "$(algo.solver_name)", "$(policy_pomdp_mdp_filename).jld2") policy pomdp mdp
 
             # Create simulator
-            hr = HistoryRecorder(max_steps=config.steps_per_episode)
+            hr = HistoryRecorder(max_steps=config.simulation_config.steps_per_episode)
 
             # Add Sim objects for each episode
-            for sim_number in 1:config.num_episodes
+            for sim_number in 1:config.simulation_config.num_episodes
                 seed = starting_seed + sim_number
 
                 # Get initial belief and state
@@ -352,8 +341,8 @@ function simulate_all_policies_on_mdp(algorithms, config)
                     policy,                 # Policy
                     initial_state;                  # Initial state
                     rng=MersenneTwister(seed),
-                    max_steps=config.steps_per_episode,
-                    metadata=Dict(:policy => algo.solver_name, :lambda => λ, :seed => sim_number)
+                    max_steps=config.simulation_config.steps_per_episode,
+                    metadata=Dict(:policy => algo.solver_name, :lambda => λ, :seed => seed, :episode_number => sim_number)
                 ))
             end
         end
@@ -404,17 +393,17 @@ function simulate_vi_policy_on_hifi_mdp(algorithms, config)
                 @load joinpath(config.policies_dir, "$(algo.solver_name)", "$(policy_pomdp_mdp_filename).jld2") policy pomdp mdp
 
                 # Create simulator
-                hr = HistoryRecorder(max_steps=config.steps_per_episode)
+                hr = HistoryRecorder(max_steps=config.simulation_config.steps_per_episode)
 
                 # Create simulator POMDP
                 sim_pomdp = create_sim_pomdp(config, λ)
                 sim_mdp = UnderlyingMDP(sim_pomdp)
 
                 # Create adaptor policy
-                adaptor_policy = AdaptorPolicy(policy, pomdp, config.location)
+                adaptor_policy = AdaptorPolicy(policy, pomdp, config.solver_config.location, config.solver_config.reproduction_rate)
 
                 # Add Sim objects for each episode
-                for sim_number in 1:config.num_episodes
+                for sim_number in 1:config.simulation_config.num_episodes
                     seed = starting_seed + sim_number
 
                     # Get initial belief and state
@@ -425,8 +414,8 @@ function simulate_vi_policy_on_hifi_mdp(algorithms, config)
                         adaptor_policy,                 # Policy
                         initial_state;                  # Initial state
                         rng=MersenneTwister(seed),
-                        max_steps=config.steps_per_episode,
-                        metadata=Dict(:policy => algo.solver_name, :lambda => λ, :seed => sim_number)
+                        max_steps=config.simulation_config.steps_per_episode,
+                        metadata=Dict(:policy => algo.solver_name, :lambda => λ, :seed => seed, :episode_number => sim_number)
                     ))
                 end
             end

@@ -1,5 +1,4 @@
-include("../Utils/SharedTypes.jl")
-include("../Utils/Utils.jl")
+
 
 using POMDPs
 using GaussianFilters
@@ -18,8 +17,8 @@ mutable struct KalmanUpdater <: POMDPs.Updater
     location::String
 end
 
-# Create a step function with location captured in closure
-function make_step_function(location::String)
+# Create a step function with location and reproduction_rate captured in closure
+function make_step_function(location::String, reproduction_rate::Float64)
     # x is state, u is action
     function step(x, u)
         # Unpack the state and action
@@ -32,8 +31,8 @@ function make_step_function(location::String)
         motile *= (1 - config.motile_reduction)
         sessile *= (1 - config.sessile_reduction)
 
-        # Predict the next abundances (using captured location)
-        next_adult, next_motile, next_sessile = predict_next_abundances(adult, motile, sessile, temp, location)
+        # Predict the next abundances (using captured location and reproduction_rate)
+        next_adult, next_motile, next_sessile = predict_next_abundances(adult, motile, sessile, temp, location, reproduction_rate)
 
         # Get the temperature for the next week (using captured location)
         next_annual_week = (annual_week + 1) % 52
@@ -60,11 +59,12 @@ function build_kf(sim_pomdp::Any; ekf_filter=false)
     W = Diagonal([sim_pomdp.adult_sd^2, sim_pomdp.motile_sd^2, sim_pomdp.sessile_sd^2, sim_pomdp.temp_sd^2])
     V = Diagonal([sim_pomdp.adult_sd^2, sim_pomdp.motile_sd^2, sim_pomdp.sessile_sd^2, sim_pomdp.temp_sd^2])
 
-    # Get location from POMDP
+    # Get location and reproduction_rate from POMDP
     location = sim_pomdp.location
+    reproduction_rate = sim_pomdp.reproduction_rate
 
-    # Create step function with location captured in closure
-    step_fn = make_step_function(location)
+    # Create step function with location and reproduction_rate captured in closure
+    step_fn = make_step_function(location, reproduction_rate)
 
     # Create dynamics and observation models
     dmodel = NonlinearDynamicsModel(step_fn, W)
@@ -103,5 +103,12 @@ function POMDPs.update(updater::KalmanUpdater, b0::GaussianBelief, a::Action, o:
     observation = [o.Adult, o.Motile, o.Sessile, o.Temperature]
     b = GaussianFilters.update(updater.filter, b0, action, observation)
 
-    return b
+    # Regularize covariance to ensure positive definiteness
+    # Add small diagonal term (Joseph form-inspired regularization)
+    # This prevents numerical issues in the UKF over many timesteps
+    ϵ = 1e-8
+    Σ_reg = Symmetric(b.Σ + ϵ * I)
+    b_reg = GaussianBelief(b.μ, Σ_reg)
+
+    return b_reg
 end
