@@ -310,7 +310,7 @@ function POMDPs.reward(pomdp::SeaLiceSimPOMDP, s::EvaluationState, a::Action, sp
         # At 0.6 (20% over): 100 * 0.2^2 * 1.2 = 4.8
         # At 0.75 (50% over): 100 * 0.5^2 * 1.5 = 37.5
         # At 1.0 (100% over): 100 * 1.0^2 * 2.0 = 200
-        regulatory_penalty = 100.0 * ((excess_ratio - 1.0)^2) * excess_ratio
+        regulatory_penalty = 100.0 # * ((excess_ratio - 1.0)^2) * excess_ratio
     else
         regulatory_penalty = 0.0
     end
@@ -335,10 +335,11 @@ function POMDPs.reward(pomdp::SeaLiceSimPOMDP, s::EvaluationState, a::Action, sp
     # === 5. SEA LICE BURDEN (chronic parasite damage) ===
     # Separate from growth: osmoregulatory stress, secondary infections, welfare
     # Scales non-linearly (exponentially worse at high levels)
-    # At 0.5: 0.5 * 1.0 = 0.5
-    # At 1.0: 1.0 * 1.25 = 1.25
-    # At 2.0: 2.0 * 1.75 = 3.5
-    sea_lice_penalty = s.Adult * (1.0 + 0.5 * max(0, s.Adult - 0.5))
+    # At 0.1: 0.10
+    # At 0.5: 0.50
+    # At 1.0: 1.00 × 1.10 = 1.10 (milder)
+    # At 2.0: 2.00 × 1.30 = 2.60 (much milder than 3.50)
+    sea_lice_penalty = s.Adult * (1.0 + 0.2 * max(0, s.Adult - 0.5))
 
     # === TOTAL REWARD ===
     return -(
