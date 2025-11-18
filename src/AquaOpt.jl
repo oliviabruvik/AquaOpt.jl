@@ -83,9 +83,24 @@ function __init__()
 end
 
 function run_experiments(mode, location)
-    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location=location, ekf_filter=true, plot=true)
+
+    # Option 1: Balanced multi-objective (all components contribute ~equally to total)
+    # reward_lambdas1 = [1.0, 0.1, 0.3, 0.3, 2.0] # [treatment, regulatory, biomass, health, sea lice]
+    # [0.7, 2.0, 0.1, 0.1, 0.8]
+    # reward_lambdas1 = [50.0, 0.2, 0.5, 0.5, 0.1] # [treatment, regulatory, biomass, health, sea lice]
+    reward_lambdas1 = [0.2, 0.01, 0.1, 0.2, 0.1] # [treatment, regulatory, biomass, health, sea lice]
+    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location=location, ekf_filter=true, plot=true, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas1)
+
+    # Option 2: Cost-focused (prioritize economics over welfare)
+    reward_lambdas2 = [0.4, 0.02, 0.1, 2.0, 0.8] # [treatment, regulatory, biomass, health, sea lice]
+    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location=location, ekf_filter=true, plot=true, reward_lambdas=reward_lambdas2, sim_reward_lambdas=reward_lambdas2)
+
+    # Option 3: Welfare-focused (prioritize fish health and avoid over-treatment)
+    reward_lambdas3 = [0.2, 0.02, 0.1, 0.3, 0.1] # [treatment, regulatory, biomass, health, sea lice]
+    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ekf", mode=mode, location=location, ekf_filter=true, plot=true, reward_lambdas=reward_lambdas3, sim_reward_lambdas=reward_lambdas3)
+    
     # main(first_step_flag="solve", log_space=false, experiment_name="raw_space_ukf", mode=mode, location=location, ekf_filter=false, plot=true)
-    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location=location, ekf_filter=false, plot=true)
+    # main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location=location, ekf_filter=false, plot=true, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas)
     # main(first_step_flag="solve", log_space=false, experiment_name="raw_space_ekf", mode=mode, location=location, ekf_filter=true, plot=true)
     return
 end
@@ -93,9 +108,9 @@ end
 # ----------------------------
 # Main function
 # ----------------------------
-function main(;first_step_flag="solve", log_space=true, experiment_name="exp", mode="light", location="south", ekf_filter=true, plot=false)
+function main(;first_step_flag="solve", log_space=true, experiment_name="exp", mode="light", location="south", ekf_filter=true, plot=false, reward_lambdas::Vector{Float64}, sim_reward_lambdas::Vector{Float64})
 
-    config, heuristic_config = setup_experiment_configs(experiment_name, log_space, ekf_filter, mode, location)
+    config, heuristic_config = setup_experiment_configs(experiment_name, log_space, ekf_filter, mode, location; reward_lambdas=reward_lambdas, sim_reward_lambdas=sim_reward_lambdas)
     algorithms = define_algorithms(config, heuristic_config)
 
     @info """\n
@@ -105,6 +120,9 @@ function main(;first_step_flag="solve", log_space=true, experiment_name="exp", m
     ║  Mode:            $mode_flag
     ║  Log Space:       $log_space_flag
     ║  EKF Filter:      $ekf_filter
+    ║  Reward lambdas:  $reward_lambdas
+    ║  Sim R lambdas:   $sim_reward_lambdas
+    ║  Location:        $location
     ║  ExperimentDir: $(config.experiment_dir)
     ╚════════════════════════════════════════════════════════════════════════╝
     """
@@ -160,43 +178,36 @@ end
 # ----------------------------
 # Set up and save experiment configuration
 # ----------------------------
-function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, mode="light", location="south")
+function infer_growth_rate_from_location(location::String, reproduction_rate::Float64, regulation_limit::Float64)
+    # Use steady-state lice levels near the regulation limit to estimate expected weekly growth
+    baseline = max(regulation_limit, 0.1)
+    params = get_location_params(location)
+    # Evaluate temperature near the local annual peak to reflect worst-case growth
+    temp = get_temperature(params.peak_week, location)
+    
+    next_adult, _, _ = predict_next_abundances(baseline, baseline, baseline, temp, location, reproduction_rate)
+    ratio = max(next_adult / baseline, 1e-6)
+    return log(ratio)
+end
+
+function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, mode="light", location="south"; reward_lambdas::Vector{Float64}, sim_reward_lambdas::Vector{Float64}, solver_growth_rate=nothing)
 
     # Define experiment configuration
-    exp_name = string(Dates.today(), "/", Dates.now(), "_", experiment_name, "_", mode, "_", location)
+    exp_name = string(Dates.today(), "/", Dates.now(), "_", experiment_name, "_", mode, "_", location, "_", reward_lambdas)
 
     @info "Setting up experiment configuration for experiment: $exp_name"
 
-    if mode == "light"
+    # Align solver growth rate with biological dynamics unless overridden
+    reproduction_rate = SolverConfig().reproduction_rate
+    regulation_limit = SolverConfig().regulation_limit
+    inferred_growth_rate = solver_growth_rate === nothing ? infer_growth_rate_from_location(String(location), reproduction_rate, regulation_limit) : solver_growth_rate
+    @info "Inferred growth rate: $inferred_growth_rate"
+
+    if mode == "debug"
         solver_cfg = SolverConfig(
             log_space=log_space,
-            reward_lambdas=[0.7, 0.2, 0.1, 0.1, 0.8], # [treatment, regulatory, biomass, health, sea lice level]
-            sarsop_max_time=5.0,
-            VI_max_iterations=10,
-            QMDP_max_iterations=10,
-            location=location,
-        )
-        sim_cfg = SimulationConfig(
-            num_episodes=1000,
-            steps_per_episode=104,
-            ekf_filter=ekf_filter,
-            verbose=false,
-            step_through=false,
-        )
-        config = ExperimentConfig(
-            solver_config=solver_cfg,
-            simulation_config=sim_cfg,
-            experiment_name=exp_name,
-            policies_dir = joinpath("NorthernNorway", "policies"),
-            simulations_dir = joinpath("NorthernNorway", "simulation_histories"),
-            results_dir = joinpath("NorthernNorway", "avg_results"),
-            figures_dir = joinpath("NorthernNorway", "figures"),
-            experiment_dir = joinpath("NorthernNorway"),
-        )
-    elseif mode == "debug"
-        solver_cfg = SolverConfig(
-            log_space=log_space,
-            reward_lambdas=[1.0, 0.5, 0.07, 0.1, 2.0], # [1.0, 3.0, 0.5, 0.01, 0.0], # [treatment, regulatory, biomass, health, sea lice]
+            growthRate=inferred_growth_rate,
+            reward_lambdas=reward_lambdas, # [1.0, 3.0, 0.5, 0.01, 0.0], # [treatment, regulatory, biomass, health, sea lice]
             sarsop_max_time=30.0,
             VI_max_iterations=30,
             QMDP_max_iterations=30,
@@ -209,7 +220,8 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
             num_episodes=10,
             steps_per_episode=52,
             ekf_filter=ekf_filter,
-            sim_reward_lambdas = [1.0, 0.5, 0.07, 0.1, 2.0],  # [treatment, regulatory, biomass, health, sea_lice]
+            n_sample=100,
+            sim_reward_lambdas = sim_reward_lambdas,  # [treatment, regulatory, biomass, health, sea_lice]
         )
         config = ExperimentConfig(
             solver_config=solver_cfg,
@@ -219,7 +231,8 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
     elseif mode == "paper"
         solver_cfg = SolverConfig(
             log_space=log_space,
-            reward_lambdas=[1.0, 0.5, 0.07, 0.1, 2.0], # [1.0, 3.0, 0.5, 0.01, 0.0], # [treatment, regulatory, biomass, health, sea lice]
+            growthRate=inferred_growth_rate,
+            reward_lambdas=reward_lambdas, # [1.0, 3.0, 0.5, 0.01, 0.0], # [treatment, regulatory, biomass, health, sea lice]
             sarsop_max_time=300.0,
             VI_max_iterations=100,
             QMDP_max_iterations=100,
@@ -232,7 +245,8 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
             num_episodes=1000,
             steps_per_episode=104,
             ekf_filter=ekf_filter,
-            sim_reward_lambdas = [1.0, 0.5, 0.07, 0.1, 2.0],  # [treatment, regulatory, biomass, health, sea_lice]
+            n_sample=100,
+            sim_reward_lambdas = sim_reward_lambdas,  # [treatment, regulatory, biomass, health, sea_lice]
         )
         config = ExperimentConfig(
             solver_config=solver_cfg,
