@@ -62,10 +62,18 @@ This project implements various algorithms for optimizing sea lice management in
 ## Key Components
 
 ### 1. Models (`src/Models/`)
-- **SeaLicePOMDP.jl**: Base POMDP model for sea lice management
-- **SeaLiceLogPOMDP.jl**: Log-space POMDP model for better numerical stability
-- **SimulationPOMDP.jl**: Simulation environment for policy testing
-- **KalmanFilter.jl**: State estimation using EKF and UKF
+- **SeaLicePOMDP.jl**: Base POMDP model for sea lice management in raw space
+- **SeaLiceLogPOMDP.jl**: Log-space POMDP model with biological dynamics
+  - Uses `predict_next_abundances` for biologically accurate stage-structured transitions
+  - Incorporates temperature-dependent development rates
+  - Includes reproduction feedback (2.0 new sessile per adult per week)
+  - Matches simulator dynamics to eliminate train/test mismatch
+- **SimulationPOMDP.jl**: High-fidelity simulation environment with full biological model
+  - 4-state system: Adult, Motile, Sessile, Temperature
+  - Temperature-driven stage transitions using logistic development rates
+  - External larval influx from environment
+  - Growth cap at 30 adult lice per fish
+- **KalmanFilter.jl**: State estimation using Extended Kalman Filter (EKF)
 
 ### 2. Algorithms (`src/Algorithms/`)
 The project implements several algorithms for policy optimization:
@@ -111,20 +119,36 @@ The project implements several algorithms for policy optimization:
 
 ## Key Features
 
+### Biological Fidelity
+- **Stage-Structured Population Model**: Tracks adult, motile, and sessile sea lice separately
+- **Temperature-Dependent Development**: Logistic development rates based on water temperature
+  - Sessile → Motile: `d1(T) = 1/(1 + exp(-(d1_intercept + d1_temp_coef × (T - T_mean))))`
+  - Motile → Adult: `d2(T) = 1/(1 + exp(-(d2_intercept + d2_temp_coef × (T - T_mean))))`
+- **Reproduction Feedback**: Adults produce new sessile larvae (2.0/week)
+- **External Influx**: Environmental larval pressure (0.1-0.15 sessile/fish/week)
+- **Location-Specific Parameters**: Different survival rates for North, West, and South locations
+- **Growth Cap**: Adult lice capped at 30 per fish to prevent unrealistic explosions
+
 ### Treatment Analysis
-- **Multiple Treatment Types**: Chemical treatments, thermal treatments, and no-treatment scenarios
+- **Multiple Treatment Types**:
+  - Chemical Treatment (cost: 10 MNOK, 75% adult reduction, 5% fish mortality)
+  - Thermal Treatment (cost: 13 MNOK, 88% adult reduction, 7% fish mortality)
+  - No Treatment (cost: 0, no reduction, 0% mortality)
 - **Treatment Distribution Analysis**: Bar charts comparing treatment frequencies between policies
 - **Cost-Benefit Analysis**: Treatment costs vs. sea lice control effectiveness
+- **Stochastic Effectiveness**: Treatment outcomes vary with Gaussian noise
 
 ### Population Dynamics
-- **Sea Lice Stages**: Adult, motile, and sessile sea lice tracking
+- **Sea Lice Stages**: Adult, motile, and sessile sea lice with stage transitions
 - **Regulatory Compliance**: Monitoring against regulatory limits (0.5 adult female lice per fish)
-- **Belief State Evolution**: Kalman filter-based state estimation
+- **Belief State Evolution**: Extended Kalman Filter for state estimation from noisy observations
+- **Biomass Tracking**: Fish population and weight dynamics with mortality and growth
 
 ### Policy Comparison
 - **Multi-Policy Evaluation**: Comparison across VI, SARSOP, QMDP, and heuristic policies
+- **Model Alignment**: Solver and simulator now use identical biological dynamics
 - **Statistical Analysis**: Confidence intervals and statistical significance testing
-- **Sensitivity Analysis**: Parameter sensitivity across different scenarios
+- **Sensitivity Analysis**: Parameter sensitivity across different scenarios and locations
 
 ## Usage
 
@@ -263,27 +287,32 @@ where $\hat{\cdot}$ denotes observed (noisy) values.
 ### 2. State Transition Dynamics
 
 #### 2.1 Sea Lice Population Dynamics
-The sea lice levels evolve according to a stage-structured population model:
+The sea lice levels evolve according to a stage-structured population model based on Stige et al. (2025):
 
 **Treatment Effect:**
 $$L_t^{A'} = L_t^A \cdot (1 - \rho_a(a))$$
 $$L_t^{M'} = L_t^M \cdot (1 - \rho_m(a))$$
 $$L_t^{S'} = L_t^S \cdot (1 - \rho_s(a))$$
 
-where $\rho_i(a)$ is the treatment effectiveness for stage $i \in \{A, M, S\}$.
+where $\rho_i(a)$ is the treatment effectiveness for stage $i \in \{A, M, S\}$:
+- Chemical: $\rho_A = 0.75$, $\rho_M = 0.84$, $\rho_S = 0.74$
+- Thermal: $\rho_A = 0.88$, $\rho_M = 0.87$, $\rho_S = 0.70$
 
-**Population Growth:**
-$$L_{t+1}^S = s_1 \cdot L_t^{S'}$$
+**Population Growth (Biological Model):**
+$$L_{t+1}^S = s_1 \cdot L_t^{S'} + r \cdot L_t^{A'} + I_{ext}$$
 $$L_{t+1}^M = s_3 \cdot (1 - d_2(T_t)) \cdot L_t^{M'} + s_2 \cdot d_1(T_t) \cdot L_t^{S'}$$
-$$L_{t+1}^A = s_4 \cdot L_t^{A'} + d_2(T_t) \cdot 0.5 \cdot (s_3 + s_4) \cdot L_t^{M'}$$
+$$L_{t+1}^A = \min(s_4 \cdot L_t^{A'} + d_2(T_t) \cdot 0.5 \cdot (s_3 + s_4) \cdot L_t^{M'}, 30.0)$$
 
 where:
-- $s_1 = 0.49$: sessile survival rate
-- $s_2 = 2.3$: sessile to motile scaling
-- $s_3 = 0.88$: motile survival rate  
-- $s_4 = 0.61$: adult survival rate
-- $d_1(T) = \frac{1}{1 + \exp(-(-2.4 + 0.37(T - 9)))}$: sessile to motile development rate
-- $d_2(T) = \frac{1}{1 + \exp(-(-2.1 + 0.037(T - 9)))}$: motile to adult development rate
+- $s_1$: sessile survival rate (location-dependent: 0.49-0.56)
+- $s_2$: sessile to motile scaling (location-dependent: 2.2-2.5)
+- $s_3$: motile survival rate (location-dependent: 0.75-0.88)
+- $s_4$: adult survival rate (location-dependent: 0.61-0.85)
+- $r = 2.0$: reproduction rate (new sessile per adult per week)
+- $I_{ext}$: external influx (0.10-0.15 sessile/fish/week, location-dependent)
+- $d_1(T) = \frac{1}{1 + \exp(-(d1_{int} + d1_{temp} \cdot (T - T_{mean})))}$: sessile → motile development
+- $d_2(T) = \frac{1}{1 + \exp(-(d2_{int} + d2_{temp} \cdot (T - T_{mean})))}$: motile → adult development
+- Growth capped at 30 adult lice per fish
 
 #### 2.2 Temperature Dynamics
 $$T_{t+1} = T_{mean} + T_{amp} \cdot \cos\left(\frac{2\pi(W_t^A - W_{peak})}{52}\right) + \epsilon_T$$
@@ -342,35 +371,46 @@ $$\hat{W}_t^F = W_t^F + \epsilon_W, \quad \epsilon_W \sim \mathcal{N}(0, \sigma_
 
 The reward function $R(s_t, a_t, s_{t+1})$ is defined as:
 
-$$R(s_t, a_t, s_{t+1}) = -(\lambda_{trt} \cdot C_{trt}(a_t) + \lambda_{reg} \cdot P_{reg}(s_t, a_t) + \lambda_{bio} \cdot L_{bio}(s_t, s_{t+1}) + \lambda_{health} \cdot D_{health}(a_t, s_t))$$
+$$R(s_t, a_t, s_{t+1}) = -(\lambda_{trt} \cdot C_{trt}(a_t) + \lambda_{reg} \cdot P_{reg}(s_t) + \lambda_{bio} \cdot L_{bio}(s_t, a_t) + \lambda_{health} \cdot D_{health}(a_t) + \lambda_{lice} \cdot L_{burden}(s_t))$$
 
 where:
 
 **Treatment Cost:**
 $$C_{trt}(a) = \begin{cases}
+0 & \text{if } a = a_0 \text{ (No treatment)} \\
+10 & \text{if } a = a_1 \text{ (Mechanical treatment)} \\
+13 & \text{if } a = a_2 \text{ (Thermal treatment)}
+\end{cases}$$
+
+**Regulatory Penalty:**
+$$P_{reg}(s) = \begin{cases}
+100 & \text{if } L_t^A > 0.5 \\
+0 & \text{otherwise}
+\end{cases}$$
+
+**Biomass Loss (mortality only):**
+$$L_{bio}(s_t, a_t) = \frac{N_t \cdot (1 - (1 - \mu_{nat})(1 - \mu_{trt}(a))) \cdot W_t^F \cdot (W_t^F / 5.0)}{1000}$$
+where:
+- $\mu_{nat} = 0.0005$: natural weekly mortality
+- $\mu_{trt}(a)$: treatment-induced mortality (0%, 5%, or 7%)
+- Weight factor normalizes to harvest weight (5 kg)
+
+**Fish Health Penalty (treatment side effects):**
+$$D_{health}(a) = \begin{cases}
 0 & \text{if } a = a_0 \\
 10 & \text{if } a = a_1 \\
 15 & \text{if } a = a_2
 \end{cases}$$
 
-**Regulatory Penalty:**
-$$P_{reg}(s, a) = \begin{cases}
-1 & \text{if } L_t^A > L_{limit} \text{ and } a = a_0 \\
-0 & \text{otherwise}
-\end{cases}$$
+**Sea Lice Burden (chronic damage):**
+$$L_{burden}(s) = L_t^A \cdot (1.0 + 0.2 \cdot \max(0, L_t^A - 0.5))$$
 
-**Biomass Loss:**
-$$L_{bio}(s_t, s_{t+1}) = \max(B_t - B_{t+1}, 0)$$
-where $B_t = W_t^F \cdot N_t$ is the total biomass.
-
-**Fish Health Penalty:**
-$$D_{health}(a, s) = D_{disease}(a) \cdot L_t^A$$
-
-**Weight Parameters:**
-- $\lambda_{trt} = 0.8$: treatment cost weight
-- $\lambda_{reg} = 0.1$: regulatory penalty weight  
-- $\lambda_{bio} = 0.05$: biomass loss weight
-- $\lambda_{health} = 0.05$: health penalty weight
+**Weight Parameters (configurable):**
+- $\lambda_{trt}$: treatment cost weight (e.g., 0.2)
+- $\lambda_{reg}$: regulatory penalty weight (e.g., 0.01-1.0)
+- $\lambda_{bio}$: biomass loss weight (e.g., 0.1)
+- $\lambda_{health}$: health penalty weight (e.g., 0.2)
+- $\lambda_{lice}$: sea lice burden weight (e.g., 0.1)
 
 ### 5. Belief State
 
