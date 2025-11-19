@@ -5,18 +5,125 @@ using Statistics
 using DataFrames
 using PGFPlotsX
 using POMDPTools
+using Dates
 
-# Helper to map actions to short labels for annotations
-function action_short_label(a)
-    if a == MechanicalTreatment
-        return "M"
-    elseif a == ChemicalTreatment
-        return "C"
-    elseif a == ThermalTreatment
-        return "Th"
-    else
-        return ""
+# Consistent palette + labeling for the Plos One figures
+const PLOS_POLICY_STYLE_ORDERED = [
+    ("Heuristic_Policy", (; label = "Heuristic",     line = "teal!75!black",    fill = "teal!25!white")),
+    ("NUS_SARSOP_Policy", (; label = "SARSOP",       line = "blue!80!black",    fill = "blue!25!white")),
+    ("VI_Policy",         (; label = "VI",           line = "violet!80!black",  fill = "violet!25!white")),
+    ("QMDP_Policy",       (; label = "QMDP",         line = "magenta!70!black", fill = "magenta!25!white")),
+    ("Random_Policy",     (; label = "Random",       line = "orange!85!black",  fill = "orange!25!white")),
+    ("NeverTreat_Policy", (; label = "NeverTreat",   line = "gray!70!black",    fill = "gray!20!white")),
+    ("AlwaysTreat_Policy",(; label = "AlwaysTreat",  line = "red!80!black",     fill = "red!20!white")),
+]
+const PLOS_POLICY_STYLE_LOOKUP = Dict(name => style for (name, style) in PLOS_POLICY_STYLE_ORDERED)
+
+const PLOS_ACTION_STYLE_ORDERED = [
+    (NoTreatment,         (; label = "No Treatment",        color = "blue!70!black",    marker = "o",  mark_opts = "{fill=white}")),
+    (MechanicalTreatment, (; label = "Mechanical",          color = "teal!75!black",    marker = "triangle*", mark_opts = "{solid}")),
+    (ChemicalTreatment,   (; label = "Chemical",            color = "orange!85!black",  marker = "square*",   mark_opts = "{solid}")),
+    (ThermalTreatment,    (; label = "Thermal",             color = "red!80!black",     marker = "diamond*",  mark_opts = "{solid}")),
+]
+const PLOS_ACTION_STYLE_LOOKUP = Dict(action => style for (action, style) in PLOS_ACTION_STYLE_ORDERED)
+
+const PLOS_STAGE_STYLE_ORDERED = [
+    (:adult,     (; label = "Adult (true)",        line = "blue!80!black",   fill = "blue!25!white")),
+    (:sessile,   (; label = "Sessile",             line = "purple!70!black", fill = "purple!20!white")),
+    (:motile,    (; label = "Motile",              line = "teal!70!black",   fill = "teal!20!white")),
+    (:predicted, (; label = "Belief (predicted)",  line = "black!70",        fill = "black!10")),
+]
+const PLOS_STAGE_STYLE_LOOKUP = Dict(key => style for (key, style) in PLOS_STAGE_STYLE_ORDERED)
+
+const PLOS_FONT = "\\small"
+const PLOS_LABEL_STYLE = "color=black, font=\\small"
+const PLOS_TICK_STYLE = "color=black, font=\\small"
+const PLOS_TITLE_STYLE = "color=black, font=\\small"
+const PLOS_FILL_OPACITY = 0.5
+
+_std_with_guard(v) = length(v) > 1 ? std(v; corrected=true) : 0.0
+
+function _selected_policy_styles(policies_to_plot)
+    if policies_to_plot === nothing
+        return PLOS_POLICY_STYLE_ORDERED
     end
+    wanted = Set(policies_to_plot)
+    filtered = [(name, style) for (name, style) in PLOS_POLICY_STYLE_ORDERED if name in wanted]
+    if isempty(filtered)
+        @warn "No matching policies found for $(collect(wanted)); defaulting to all policies"
+        return PLOS_POLICY_STYLE_ORDERED
+    end
+    found = Set(first.(filtered))
+    missing = setdiff(wanted, found)
+    if !isempty(missing)
+        @warn "Policies without plotting styles ignored: $(collect(missing))"
+    end
+    return filtered
+end
+
+const PLOS_LEGEND_Y = 1.23
+
+function plos_top_legend(; columns=nothing)
+    args = [
+        "fill" => "white",
+        "draw" => "black!40",
+        "text" => "black",
+        "font" => PLOS_FONT,
+        "at" => "{(0.5,$(PLOS_LEGEND_Y))}",
+        "anchor" => "south",
+        "row sep" => "1pt",
+        "column sep" => "0.5cm",
+    ]
+    if columns !== nothing
+        push!(args, "legend columns" => string(columns))
+    end
+    return Options(args...)
+end
+
+const DEFAULT_PLOS_START_DATE = Date(2000, 9, 1)
+const DEFAULT_PRODUCTION_START_WEEK = 37
+
+function _plos_start_date(config)
+    sim_cfg = config.simulation_config
+    if hasproperty(sim_cfg, :start_date)
+        start_date = getproperty(sim_cfg, :start_date)
+        start_date isa Date && return start_date
+    end
+    year_val = hasproperty(sim_cfg, :start_year) ? getproperty(sim_cfg, :start_year) : Dates.year(DEFAULT_PLOS_START_DATE)
+    if hasproperty(sim_cfg, :start_month) || hasproperty(sim_cfg, :start_day)
+        month_val = hasproperty(sim_cfg, :start_month) ? getproperty(sim_cfg, :start_month) : Dates.month(DEFAULT_PLOS_START_DATE)
+        day_val = hasproperty(sim_cfg, :start_day) ? getproperty(sim_cfg, :start_day) : Dates.day(DEFAULT_PLOS_START_DATE)
+        return Date(year_val, month_val, day_val)
+    end
+    prod_week = hasproperty(sim_cfg, :production_start_week) ? getproperty(sim_cfg, :production_start_week) : DEFAULT_PRODUCTION_START_WEEK
+    prod_week = max(prod_week, 1)
+    return Date(year_val, 1, 1) + Week(prod_week - 1)
+end
+
+function plos_time_ticks(config)
+    steps = config.simulation_config.steps_per_episode
+    start_date = _plos_start_date(config)
+    ticks = Int[]
+    labels = String[]
+    prev_date = start_date
+    push!(ticks, 1)
+    push!(labels, monthabbr(start_date))
+    show = true
+    for week in 2:steps
+        d = start_date + Week(week - 1)
+        if Dates.month(d) != Dates.month(prev_date) || Dates.year(d) != Dates.year(prev_date)
+            push!(ticks, week)
+            label = monthabbr(d)
+            if show
+                push!(labels, label)
+            else
+                push!(labels, "")
+            end
+            show = !show
+        end
+        prev_date = d
+    end
+    return ticks, labels
 end
 
 # Backend is set in AquaOpt.__init__()
@@ -62,30 +169,31 @@ function plos_one_plot_kalman_filter_belief_trajectory(data, algo_name, config, 
 
     # Only plot Adult female sea lice (index 1)
     i = 1  # Adult index
-    belief_color = "blue"
-    true_color = "green"
-    obs_color = "red"
+
+    # Softer palette to match other plots / improve accessibility
+    belief_line_color = "blue!80!black"
+    belief_fill_color = "blue!30!white"
+    true_color = "black!70"
+    obs_color = "orange!85!black"
     
+    ticks, labels = plos_time_ticks(config)
+
     # Create the plot using single axis (not groupplots)
     ax = @pgf Axis(Options(
         :width => "18cm",
         :height => "6cm",
-        :title_style => "color=black",
-        :xlabel => "Time Since Production Start (Weeks)",
+        :title_style => PLOS_TITLE_STYLE,
+        :xlabel => "Time of Year",
         :ylabel => "Avg. Adult Female Sea Lice per Fish",
-        :xlabel_style => "color=black",
-        :ylabel_style => "color=black",
-        :tick_label_style => "color=black",
+        :xlabel_style => PLOS_LABEL_STYLE,
+        :ylabel_style => PLOS_LABEL_STYLE,
+        :tick_label_style => PLOS_TICK_STYLE,
         :xmin => 0,
         :ymin => 0,
+        :xtick => ticks,
+        :xticklabels => labels,
         "axis background/.style" => Options("fill" => "white"),
-        "legend style" => Options(
-            "fill" => "white", 
-            "draw" => "black", 
-            "text" => "black",
-            "at" => "{(0.98,0.98)}", 
-            "anchor" => "north east"
-        ),
+        "legend style" => plos_top_legend(columns=4),
     ))
 
     # Time steps
@@ -111,13 +219,19 @@ function plos_one_plot_kalman_filter_belief_trajectory(data, algo_name, config, 
         lower_coords = join(["($(t), $(valid_lower[j]))" for (j, t) in enumerate(valid_time_steps)], " ")
         
         # Add the confidence interval fill
-        push!(ax, @pgf("\\addplot[name path=upper, $(belief_color), mark=none, line width=0.5pt] coordinates {$(upper_coords)};"))
-        push!(ax, @pgf("\\addplot[name path=lower, $(belief_color), mark=none, line width=0.5pt] coordinates {$(lower_coords)};"))
-        push!(ax, @pgf("\\addplot[$(belief_color), fill opacity=0.3] fill between[of=upper and lower];"))
+        push!(ax, @pgf("\\addplot[name path=upper, draw=none, forget plot] coordinates {$(upper_coords)};"))
+        push!(ax, @pgf("\\addplot[name path=lower, draw=none, forget plot] coordinates {$(lower_coords)};"))
+        push!(ax, @pgf("\\addplot[forget plot, fill=$(belief_fill_color), fill opacity=$(PLOS_FILL_OPACITY)] fill between[of=upper and lower];"))
+        push!(ax, @pgf("\\addlegendimage{area legend, draw=$(belief_line_color), fill=$(belief_fill_color), fill opacity=$(PLOS_FILL_OPACITY)}"))
         push!(ax, @pgf("\\addlegendentry{Belief ±1σ}"))
         
         # Add the mean line
-        push!(ax, @pgf("\\addplot[$(belief_color), mark=none, line width=1pt] coordinates {$(mean_coords)};"))
+        push!(ax, @pgf("\\addplot[draw=$(belief_line_color), mark=none, line width=1.2pt] coordinates {$(mean_coords)};"))
+        push!(ax, @pgf("\\addlegendentry{Belief mean}"))
+    else
+        push!(ax, @pgf("\\addlegendimage{area legend, draw=$(belief_line_color), fill=$(belief_fill_color), fill opacity=$(PLOS_FILL_OPACITY)}"))
+        push!(ax, @pgf("\\addlegendentry{Belief ±1σ}"))
+        push!(ax, @pgf("\\addlegendimage{draw=$(belief_line_color), line width=1.2pt}"))
         push!(ax, @pgf("\\addlegendentry{Belief mean}"))
     end
     
@@ -127,11 +241,11 @@ function plos_one_plot_kalman_filter_belief_trajectory(data, algo_name, config, 
         valid_state_times = findall(valid_states)
         valid_state_values = states_df[valid_states, i]
         true_coords = join(["($(valid_state_times[j]), $(valid_state_values[j]))" for j in 1:length(valid_state_times)], " ")
-        push!(ax, @pgf("\\addplot[$(true_color), mark=x, mark size=2pt, only marks] coordinates {$(true_coords)};"))
+        push!(ax, @pgf("\\addplot[only marks, mark=*, mark size=1.8pt, mark options={draw=$(true_color), fill=$(true_color)}] coordinates {$(true_coords)};"))
         push!(ax, @pgf("\\addlegendentry{True value}"))
     else
-        # Add a dummy legend entry for true value even if no data
-        push!(ax, @pgf("\\addplot[$(true_color), mark=x, mark size=2pt, only marks] coordinates {(0,0)};"))
+        # Add a legend entry without plotting dummy data
+        push!(ax, @pgf("\\addlegendimage{only marks, mark=*, mark size=1.8pt, mark options={draw=$(true_color), fill=$(true_color)}}"))
         push!(ax, @pgf("\\addlegendentry{True value}"))
     end
     
@@ -141,11 +255,11 @@ function plos_one_plot_kalman_filter_belief_trajectory(data, algo_name, config, 
         valid_obs_times = findall(valid_obs)
         valid_obs_values = observations_df[valid_obs, i]
         obs_coords = join(["($(valid_obs_times[j]), $(valid_obs_values[j]))" for j in 1:length(valid_obs_times)], " ")
-        push!(ax, @pgf("\\addplot[$(obs_color), mark=o, mark size=2pt, only marks] coordinates {$(obs_coords)};"))
+        push!(ax, @pgf("\\addplot[only marks, mark=o, mark size=2pt, mark options={draw=$(obs_color), fill=white}] coordinates {$(obs_coords)};"))
         push!(ax, @pgf("\\addlegendentry{Observation}"))
     else
-        # Add a dummy legend entry for observation even if no data
-        push!(ax, @pgf("\\addplot[$(obs_color), mark=o, mark size=2pt, only marks] coordinates {(0,0)};"))
+        # Add a legend entry without plotting dummy data
+        push!(ax, @pgf("\\addlegendimage{only marks, mark=o, mark size=2pt, mark options={draw=$(obs_color), fill=white}}"))
         push!(ax, @pgf("\\addlegendentry{Observation}"))
     end
 
@@ -153,6 +267,7 @@ function plos_one_plot_kalman_filter_belief_trajectory(data, algo_name, config, 
     mkpath("Quick_Access")
     mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
     PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "north_sarsop_kalman_filter_belief_trajectory.pdf"), ax)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "north_sarsop_kalman_filter_belief_trajectory.tex"), ax)
     return ax
 end
 
@@ -163,136 +278,103 @@ end
 # Shows compliance with regulatory limit (0.5 lice/fish) across multiple policies.
 # Parameters: show_ci=true/false to toggle confidence interval ribbons
 # ----------------------------
-function plos_one_sealice_levels_over_time(parallel_data, config; show_ci=true)
-    # Create the plot using PGFPlotsX (same style as Kalman filter plot)
+function plos_one_sealice_levels_over_time(parallel_data, config; show_ci=true, policies_to_plot=nothing)
+    ticks, labels = plos_time_ticks(config)
     ax = @pgf Axis(Options(
         :width => "18cm",
         :height => "6cm",
-        :xlabel => "Time Since Production Start (Weeks)",
+        :xlabel => "Time of Year",
         :ylabel => "Avg. Adult Female Sea Lice per Fish",
-        :xlabel_style => "color=black",
-        :ylabel_style => "color=black",
-        :tick_label_style => "color=black",
+        :xlabel_style => PLOS_LABEL_STYLE,
+        :ylabel_style => PLOS_LABEL_STYLE,
+        :tick_label_style => PLOS_TICK_STYLE,
         :xmin => 0,
         :xmax => config.simulation_config.steps_per_episode,
         :ymin => 0,
         :ymax => 1,
+        :xtick => ticks,
+        :xticklabels => labels,
         "axis background/.style" => Options("fill" => "white"),
-        "legend style" => Options(
-            "fill" => "white", 
-            "draw" => "black", 
-            "text" => "black",
-            "font" => "\\scriptsize",
-            "at" => "{(0.98,0.98)}", 
-            "anchor" => "north east",
-            "cells" => "{anchor=west}"
-        ),
+        "legend style" => plos_top_legend(columns=7),
         "grid" => "both",
         "major grid style" => "dashed, opacity=0.35",
     ))
-    
-    # Define colors and markers for each policy (pleasant color scheme)
-    policy_styles = Dict(
-        "Heuristic_Policy" => (color="teal", marker="o", name="Heuristic"),
-        "NUS_SARSOP_Policy" => (color="blue", marker="square", name="SARSOP"),
-        "VI_Policy" => (color="purple", marker="diamond", name="VI"),
-        "QMDP_Policy" => (color="violet", marker="triangle", name="QMDP"),
-        "Random_Policy" => (color="orange", marker="rectangle", name="Random"),
-        "NeverTreat_Policy" => (color="gray", marker="star", name="NeverTreat"),
-        "AlwaysTreat_Policy" => (color="red", marker="triangle", name="AlwaysTreat")
-    )
 
-    # Load and plot results for each policy
-    for (policy_name, style) in policy_styles
+    for (policy_name, style) in _selected_policy_styles(policies_to_plot)
         try
-
-            # Filter data for this policy
             data_filtered = filter(row -> row.policy == policy_name, parallel_data)
-            
-            # Get all unique seeds
-            seeds = unique(data_filtered.seed)
+            isempty(data_filtered) && continue
 
-            # Calculate mean and 95% CI for each time step
+            seeds = unique(data_filtered.seed)
+            isempty(seeds) && continue
+
             time_steps = 1:config.simulation_config.steps_per_episode
-            mean_sealice = Float64[]
-            ci_lower = Float64[]
-            ci_upper = Float64[]
-            
-            for t in time_steps
-                # Extract sea lice level at time step t from all episodes
+            mean_sealice = zeros(Float64, length(time_steps))
+            ci_lower = similar(mean_sealice)
+            ci_upper = similar(mean_sealice)
+
+            for (idx, t) in enumerate(time_steps)
                 step_sealice = Float64[]
                 for seed in seeds
                     data_seed = filter(row -> row.seed == seed, data_filtered)
-                    h = data_seed.history[1]
-                    states = collect(state_hist(h))
+                    isempty(data_seed) && continue
+                    states = collect(state_hist(data_seed.history[1]))
                     if t <= length(states)
-                        sealice_level = states[t].SeaLiceLevel
-                        push!(step_sealice, sealice_level)
+                        push!(step_sealice, states[t].SeaLiceLevel)
                     end
                 end
-                
-                if !isempty(step_sealice)
-                    # Calculate mean and 95% CI
-                    mean_level = mean(step_sealice)
-                    std_level = std(step_sealice)
-                    n_episodes = length(step_sealice)
-                    se_level = std_level / sqrt(n_episodes)  # Standard error
-                    ci_margin = 1.96 * se_level  # 95% CI margin
-                    
-                    push!(mean_sealice, mean_level)
-                    push!(ci_lower, mean_level - ci_margin)
-                    push!(ci_upper, mean_level + ci_margin)
-                else
-                    push!(mean_sealice, NaN)
-                    push!(ci_lower, NaN)
-                    push!(ci_upper, NaN)
+
+                if isempty(step_sealice)
+                    mean_sealice[idx] = NaN
+                    ci_lower[idx] = NaN
+                    ci_upper[idx] = NaN
+                    continue
                 end
+
+                mean_level = mean(step_sealice)
+                std_level = _std_with_guard(step_sealice)
+                se_level = std_level / sqrt(length(step_sealice))
+                margin = 1.96 * se_level
+
+                mean_sealice[idx] = mean_level
+                ci_lower[idx] = mean_level - margin
+                ci_upper[idx] = mean_level + margin
             end
-            
-            # Remove NaN values
-            valid_indices = .!isnan.(mean_sealice)
-            valid_time_steps = time_steps[valid_indices]
-            valid_mean = mean_sealice[valid_indices]
-            valid_ci_lower = ci_lower[valid_indices]
-            valid_ci_upper = ci_upper[valid_indices]
-            
-            # Create coordinate strings for PGFPlotsX
-            mean_coords = join(["($(valid_time_steps[j]), $(valid_mean[j]))" for j in 1:length(valid_time_steps)], " ")
-            
-            # Add the line plot with optional 95% confidence interval ribbon
-            if show_ci
-                upper_coords = join(["($(valid_time_steps[j]), $(valid_ci_upper[j]))" for j in 1:length(valid_time_steps)], " ")
-                lower_coords = join(["($(valid_time_steps[j]), $(valid_ci_lower[j]))" for j in 1:length(valid_time_steps)], " ")
-                
-                # Create safe path names without underscores for LaTeX
-                safe_name = replace(policy_name, "_" => "")
-                
-                # Add confidence interval fill
-                push!(ax, @pgf("\\addplot[name path=upper$(safe_name), $(style.color), mark=none, line width=0.5pt, forget plot] coordinates {$(upper_coords)};"))
-                push!(ax, @pgf("\\addplot[name path=lower$(safe_name), $(style.color), mark=none, line width=0.5pt, forget plot] coordinates {$(lower_coords)};"))
-                push!(ax, @pgf("\\addplot[$(style.color), fill opacity=0.3, forget plot] fill between[of=upper$(safe_name) and lower$(safe_name)];"))
+
+            valid_indices = .!isnan.(mean_sealice) .&& .!isnan.(ci_lower) .&& .!isnan.(ci_upper)
+            if any(valid_indices)
+                valid_time = time_steps[valid_indices]
+                valid_mean = mean_sealice[valid_indices]
+                valid_lower = ci_lower[valid_indices]
+                valid_upper = ci_upper[valid_indices]
+                mean_coords = join(["($(valid_time[j]), $(valid_mean[j]))" for j in 1:length(valid_time)], " ")
+
+                safe_name = replace(policy_name, r"[^A-Za-z0-9]" => "")
+
+                if show_ci
+                    upper_coords = join(["($(valid_time[j]), $(valid_upper[j]))" for j in 1:length(valid_time)], " ")
+                    lower_coords = join(["($(valid_time[j]), $(valid_lower[j]))" for j in 1:length(valid_time)], " ")
+                    push!(ax, @pgf("\\addplot[name path=upper$(safe_name), draw=none, forget plot] coordinates {$(upper_coords)};"))
+                    push!(ax, @pgf("\\addplot[name path=lower$(safe_name), draw=none, forget plot] coordinates {$(lower_coords)};"))
+                    push!(ax, @pgf("\\addplot[forget plot, fill=$(style.fill), fill opacity=$(PLOS_FILL_OPACITY)] fill between[of=upper$(safe_name) and lower$(safe_name)];"))
+                end
+
+                push!(ax, @pgf("\\addplot[mark=none, line width=1.4pt, color=$(style.line)] coordinates {$(mean_coords)};"))
+                push!(ax, @pgf("\\addlegendentry{$(style.label)}"))
             end
-            
-            # Add the mean line
-            push!(ax, @pgf("\\addplot[$(style.color), mark=none, line width=1.5pt] coordinates {$(mean_coords)};"))
-            
-            # Add legend entry with policy name
-            push!(ax, @pgf("\\addlegendentry{$(style.name)}"))
         catch e
             @warn "Could not load results for $policy_name: $e"
         end
     end
-    
-    # Add regulatory limit line
-    push!(ax, @pgf("\\addplot[black, densely dashed, line width=1pt] coordinates {(0,0.5) ($(config.simulation_config.steps_per_episode),0.5)};"))
-    push!(ax, @pgf("\\addlegendentry{Reg. Limit}"))
-    
-    # Save the plot
+
+    push!(ax, @pgf("\\addplot[black!70, densely dashed, line width=1pt] coordinates {(0,0.5) ($(config.simulation_config.steps_per_episode),0.5)};"))
+    push!(ax, @pgf("\\addlegendentry{Reg. limit (0.5)}"))
+
     mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
     mkpath("Quick_Access")
     PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "north_sealice_levels_over_time.pdf"), ax)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "north_sealice_levels_over_time.tex"), ax)
     PGFPlotsX.save(joinpath("Quick_Access", "north_sealice_levels_over_time.pdf"), ax)
-    
     return ax
 end
 
@@ -301,158 +383,314 @@ function plos_one_episode_sealice_levels_over_time(
     parallel_data,
     config;
     episode_id::Int = 1,
-    savefig::Bool = true
+    savefig::Bool = true,
+    policies_to_plot = nothing
 )
+    ticks, labels = plos_time_ticks(config)
+    policy_styles = collect(_selected_policy_styles(policies_to_plot))
+    legend_cols = max(length(policy_styles), 1)
 
     ax = @pgf Axis(Options(
         :width => "18cm",
         :height => "6cm",
-        :xlabel => "Time Since Production Start (Weeks)",
+        :xlabel => "Time of Year",
         :ylabel => "Adult Female Sea Lice per Fish",
-        :xlabel_style => "color=black",
-        :ylabel_style => "color=black",
-        :tick_label_style => "color=black",
+        :xlabel_style => PLOS_LABEL_STYLE,
+        :ylabel_style => PLOS_LABEL_STYLE,
+        :tick_label_style => PLOS_TICK_STYLE,
         :xmin => 0,
         :xmax => config.simulation_config.steps_per_episode,
         :ymin => 0,
         :ymax => 1,
+        :xtick => ticks,
+        :xticklabels => labels,
         "axis background/.style" => Options("fill" => "white"),
-        "legend style" => Options(
-            "fill" => "white",
-            "draw" => "black",
-            "text" => "black",
-            "font" => "\\scriptsize",
-            "at" => "{(0.98,0.98)}",
-            "anchor" => "north east",
-            "cells" => "{anchor=west}"
-        ),
+        "legend style" => plos_top_legend(columns=legend_cols),
         "grid" => "both",
         "major grid style" => "dashed, opacity=0.35",
     ))
 
-    policy_styles = Dict(
-        "Heuristic_Policy"      => (color="teal",   marker="o",        name="Heuristic"),
-        "NUS_SARSOP_Policy"     => (color="blue",   marker="square",   name="SARSOP"),
-        "VI_Policy"             => (color="purple", marker="diamond",  name="VI"),
-        "QMDP_Policy"           => (color="violet", marker="triangle", name="QMDP"),
-        "Random_Policy"         => (color="orange", marker="rectangle",name="Random"),
-        "NeverTreat_Policy"     => (color="gray",   marker="star",     name="NeverTreat"),
-        "AlwaysTreat_Policy"    => (color="red",    marker="triangle", name="AlwaysTreat")
-    )
-
     for (policy_name, style) in policy_styles
         try
             data_filtered = filter(row -> row.policy == policy_name, parallel_data)
-
             seeds = unique(data_filtered.seed)
+            isempty(seeds) && continue
             if episode_id > length(seeds)
                 @warn "Policy $policy_name has only $(length(seeds)) episodes, skipping"
                 continue
             end
-            seed = seeds[episode_id]
-            episode_df = filter(row -> row.seed == seed, data_filtered)
 
-            if isempty(episode_df)
-                continue
-            end
+            selected_seed = seeds[episode_id]
+            episode_df = filter(row -> row.seed == selected_seed, data_filtered)
+            isempty(episode_df) && continue
 
             history = episode_df.history[1]
             states = collect(state_hist(history))
+            actions = collect(action_hist(history))
 
             time_steps = 1:length(states)
             levels = [st.SeaLiceLevel for st in states]
+            coords = join(["($(time_steps[i]), $(levels[i]))" for i in eachindex(levels)], " ")
 
-            coords = join(["($(time_steps[i]),$(levels[i]))" for i in eachindex(levels)], " ")
-            push!(ax, @pgf("\\addplot[$(style.color), mark=none, line width=1.5pt] coordinates {$coords};"))
-            push!(ax, @pgf("\\addlegendentry{$(style.name)}"))
+            push!(ax, @pgf("\\addplot[color=$(style.line), mark=none, line width=1.35pt] coordinates {$coords};"))
+            push!(ax, @pgf("\\addlegendentry{$(style.label)}"))
 
-            #### === CLEAR TREATMENT MARKERS ===
-            try
-                actions = collect(action_hist(history))
-
-                # treatment = any action ≠ 0
-                treatment_steps = findall(!=(0), actions)
-
-                for t in treatment_steps
-                    push!(ax,
-                        @pgf("\\addplot+[only marks,
-                                        mark=*,
-                                        mark size=3.5pt,
-                                        draw=black,
-                                        line width=0.4pt,
-                                        fill=$(style.color)
-                                        ]
-                                coordinates {($(t),$(levels[t]))};")
-                    )
-                end
-            catch e
-                @warn "Treatment detection failed for $policy_name: $e"
+            treatment_steps = findall(a -> a != NoTreatment, actions)
+            max_level = isempty(levels) ? 0.0 : maximum(levels)
+            label_y = min(max_level + 0.12, 1.15)
+            for t in treatment_steps
+                push!(ax, @pgf("\\addplot+[only marks, mark=*, mark size=3pt, draw=black!70, fill=$(style.line), line width=0.35pt] coordinates {($(t), $(levels[t]))};"))
+                tag = action_short_label(actions[t])
+                isempty(tag) && continue
+                push!(ax, @pgf("""\\node[anchor=south, font=\\scriptsize, text=black!75]
+                    at (axis cs:$(t), $(label_y)) {$(tag)};"""))
             end
-
         catch e
             @warn "Error plotting $policy_name: $e"
         end
     end
 
-    # ----------------- Regulatory Limit ------------------
-    push!(ax, @pgf("\\addplot[black, densely dashed, line width=1pt] coordinates {(0,0.5) ($(config.simulation_config.steps_per_episode),0.5)};"))
-    push!(ax, @pgf("\\addlegendentry{Reg. Limit}"))
+    push!(ax, @pgf("\\addplot[black!70, densely dashed, line width=1pt] coordinates {(0,0.5) ($(config.simulation_config.steps_per_episode),0.5)};"))
+    push!(ax, @pgf("\\addlegendentry{Reg. limit (0.5)}"))
+    push!(ax, @pgf("\\addlegendimage{only marks, mark=*, mark size=3pt, mark options={draw=black!70, fill=white}}"))
+    push!(ax, @pgf("\\addlegendentry{Treatment event}"))
 
-    # ----------------- Save Figure ------------------
     if savefig
+        mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
+        mkpath("Quick_Access")
         PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "sealice_episode_$(episode_id).pdf"), ax)
+        PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "sealice_episode_$(episode_id).tex"), ax)
         PGFPlotsX.save(joinpath("Quick_Access", "sealice_episode_$(episode_id).pdf"), ax)
     end
-
+    
     return ax
 end
+
+
+# ----------------------------
+# Shared helpers for reward metric time-series plots
+# ----------------------------
+function _extract_metric_caches(data_filtered, seeds)
+    caches = NamedTuple[]
+    for seed in seeds
+        data_seed = filter(row -> row.seed == seed, data_filtered)
+        isempty(data_seed) && continue
+        history = data_seed.history[1]
+        states = collect(state_hist(history))
+        actions = collect(action_hist(history))
+        rewards = Float64.(collect(reward_hist(history)))
+        initial_biomass = isempty(states) ? 0.0 : states[1].AvgFishWeight * states[1].NumberOfFish
+        push!(caches, (; states, actions, rewards, initial_biomass))
+    end
+    return caches
+end
+
+function _plos_one_metric_plot(parallel_data, config, compute_step_value;
+        ylabel, file_suffix, ymin=nothing, ymax=nothing, policies_to_plot=nothing)
+
+    ticks, labels = plos_time_ticks(config)
+    axis_pairs = [
+        :width => "18cm",
+        :height => "6cm",
+        :xlabel => "Time of Year",
+        :ylabel => ylabel,
+        :xlabel_style => PLOS_LABEL_STYLE,
+        :ylabel_style => PLOS_LABEL_STYLE,
+        :tick_label_style => PLOS_TICK_STYLE,
+        :xmin => 0,
+        :xmax => config.simulation_config.steps_per_episode,
+        :xtick => ticks,
+        :xticklabels => labels,
+        "axis background/.style" => Options("fill" => "white"),
+        "legend style" => plos_top_legend(columns=7),
+        "grid" => "both",
+        "major grid style" => "dashed, opacity=0.35",
+    ]
+    if ymin !== nothing
+        push!(axis_pairs, :ymin => ymin)
+    end
+    if ymax !== nothing
+        push!(axis_pairs, :ymax => ymax)
+    end
+    ax = @pgf Axis(Options(axis_pairs...))
+
+    time_steps = 1:config.simulation_config.steps_per_episode
+    for (policy_name, style) in _selected_policy_styles(policies_to_plot)
+        data_filtered = filter(row -> row.policy == policy_name, parallel_data)
+        isempty(data_filtered) && continue
+        seeds = unique(data_filtered.seed)
+        isempty(seeds) && continue
+        caches = _extract_metric_caches(data_filtered, seeds)
+        isempty(caches) && continue
+
+        mean_values = fill(NaN, length(time_steps))
+        lower_values = fill(NaN, length(time_steps))
+        upper_values = fill(NaN, length(time_steps))
+
+        for (idx, t) in enumerate(time_steps)
+            step_values = Float64[]
+            for cache in caches
+                value = compute_step_value(cache, t, config)
+                if value !== nothing && !isnan(value)
+                    push!(step_values, value)
+                end
+            end
+            if !isempty(step_values)
+                n = length(step_values)
+                mean_val = mean(step_values)
+                std_val = _std_with_guard(step_values)
+                se = n > 0 ? std_val / sqrt(n) : 0.0
+                margin = 1.96 * se
+                mean_values[idx] = mean_val
+                lower_values[idx] = mean_val - margin
+                upper_values[idx] = mean_val + margin
+            end
+        end
+
+        valid_mask = .!isnan.(mean_values) .&& .!isnan.(lower_values) .&& .!isnan.(upper_values)
+        valid_indices = findall(valid_mask)
+        isempty(valid_indices) && continue
+
+        valid_times = [time_steps[i] for i in valid_indices]
+        valid_mean = mean_values[valid_indices]
+        valid_lower = lower_values[valid_indices]
+        valid_upper = upper_values[valid_indices]
+
+        mean_coords = join(["($(valid_times[j]), $(valid_mean[j]))" for j in eachindex(valid_times)], " ")
+        upper_coords = join(["($(valid_times[j]), $(valid_upper[j]))" for j in eachindex(valid_times)], " ")
+        lower_coords = join(["($(valid_times[j]), $(valid_lower[j]))" for j in eachindex(valid_times)], " ")
+
+        safe_name = replace(policy_name, r"[^A-Za-z0-9]" => "")
+        push!(ax, @pgf("\\addplot[name path=upper$(safe_name), draw=none, forget plot] coordinates {$(upper_coords)};"))
+        push!(ax, @pgf("\\addplot[name path=lower$(safe_name), draw=none, forget plot] coordinates {$(lower_coords)};"))
+        push!(ax, @pgf("\\addplot[forget plot, fill=$(style.fill), fill opacity=$(PLOS_FILL_OPACITY)] fill between[of=upper$(safe_name) and lower$(safe_name)];"))
+        push!(ax, @pgf("\\addplot[color=$(style.line), mark=none, line width=1.4pt] coordinates {$(mean_coords)};"))
+        push!(ax, @pgf("\\addlegendentry{$(style.label)}"))
+    end
+
+    mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
+    mkpath("Quick_Access")
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", file_suffix), ax)
+    tex_suffix = replace(file_suffix, ".pdf" => ".tex")
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", tex_suffix), ax)
+    PGFPlotsX.save(joinpath("Quick_Access", file_suffix), ax)
+    return ax
+end
+
+reward_step_value(cache, t, _) = t <= length(cache.rewards) ? cache.rewards[t] : nothing
+
+function biomass_loss_step_value(cache, t, _)
+    if t <= length(cache.states)
+        state = cache.states[t]
+        current_biomass = state.AvgFishWeight * state.NumberOfFish
+        return max(cache.initial_biomass - current_biomass, 0.0) / 1000.0
+    end
+    return nothing
+end
+
+function regulatory_penalty_step_value(cache, t, config)
+    if t <= length(cache.states)
+        limit = config.solver_config.regulation_limit
+        return cache.states[t].Adult > limit ? 1.0 : 0.0
+    end
+    return nothing
+end
+
+function fish_disease_step_value(cache, t, _)
+    if t <= length(cache.states) && t <= length(cache.actions)
+        return get_fish_disease(cache.actions[t]) + 100.0 * cache.states[t].SeaLiceLevel
+    end
+    return nothing
+end
+
+function treatment_cost_step_value(cache, t, _)
+    if t <= length(cache.actions)
+        return get_treatment_cost(cache.actions[t])
+    end
+    return nothing
+end
+
+function plos_one_reward_over_time(parallel_data, config; policies_to_plot=nothing)
+    _plos_one_metric_plot(
+        parallel_data, config, reward_step_value;
+        ylabel = "Reward per Step",
+        file_suffix = "north_reward_over_time.pdf",
+        policies_to_plot = policies_to_plot
+    )
+end
+
+function plos_one_biomass_loss_over_time(parallel_data, config; policies_to_plot=nothing)
+    _plos_one_metric_plot(
+        parallel_data, config, biomass_loss_step_value;
+        ylabel = "Cumulative Biomass Loss (tons)",
+        file_suffix = "north_biomass_loss_over_time.pdf",
+        ymin = 0.0,
+        policies_to_plot = policies_to_plot
+    )
+end
+
+function plos_one_regulatory_penalty_over_time(parallel_data, config; policies_to_plot=nothing)
+    _plos_one_metric_plot(
+        parallel_data, config, regulatory_penalty_step_value;
+        ylabel = "Penalty Probability",
+        file_suffix = "north_regulatory_penalty_over_time.pdf",
+        ymin = 0.0,
+        ymax = 1.0,
+        policies_to_plot = policies_to_plot
+    )
+end
+
+function plos_one_fish_disease_over_time(parallel_data, config; policies_to_plot=nothing)
+    _plos_one_metric_plot(
+        parallel_data, config, fish_disease_step_value;
+        ylabel = "Fish Disease Penalty",
+        file_suffix = "north_fish_disease_over_time.pdf",
+        ymin = 0.0,
+        policies_to_plot = policies_to_plot
+    )
+end
+
+function plos_one_treatment_cost_over_time(parallel_data, config; policies_to_plot=nothing)
+    _plos_one_metric_plot(
+        parallel_data, config, treatment_cost_step_value;
+        ylabel = "Treatment Cost per Step",
+        file_suffix = "north_treatment_cost_over_time.pdf",
+        ymin = 0.0,
+        policies_to_plot = policies_to_plot
+    )
+end
+
 
 # ----------------------------
 # Treatment Probability Over Time: Shows all policies overlaid in a single plot
 # Each policy shows the probability of treating (any action that is not NoTreatment)
 # ----------------------------
-function plos_one_combined_treatment_probability_over_time(parallel_data, config)
+function plos_one_combined_treatment_probability_over_time(parallel_data, config; policies_to_plot=nothing)
     
     # Create a single plot using PGFPlotsX (same style as other plots)
+    ticks, labels = plos_time_ticks(config)
     ax = @pgf Axis(Options(
         :width => "18cm",
         :height => "6cm",
-        :xlabel => "Time Since Production Start (Weeks)",
+        :xlabel => "Time of Year",
         :ylabel => "Treatment Probability",
-        :xlabel_style => "color=black",
-        :ylabel_style => "color=black",
-        :tick_label_style => "color=black",
+        :xlabel_style => PLOS_LABEL_STYLE,
+        :ylabel_style => PLOS_LABEL_STYLE,
+        :tick_label_style => PLOS_TICK_STYLE,
         :xmin => 0,
         :xmax => config.simulation_config.steps_per_episode,
         :ymin => 0,
         :ymax => 1.0,
+        :xtick => ticks,
+        :xticklabels => labels,
         "axis background/.style" => Options("fill" => "white"),
-        "legend style" => Options(
-            "fill" => "white", 
-            "draw" => "black", 
-            "text" => "black",
-            "font" => "\\scriptsize",
-            "at" => "{(0.98,0.98)}", 
-            "anchor" => "north east",
-            "cells" => "{anchor=west}"
-        ),
+        "legend style" => plos_top_legend(columns=7),
         "grid" => "both",
         "major grid style" => "dashed, opacity=0.35",
     ))
     
-    # Define all policies to plot with their colors and names
-    policy_styles = Dict(
-        "Heuristic_Policy" => (color="teal", name="Heuristic"),
-        "NUS_SARSOP_Policy" => (color="blue", name="SARSOP"),
-        "VI_Policy" => (color="purple", name="VI"),
-        "QMDP_Policy" => (color="violet", name="QMDP"),
-        "Random_Policy" => (color="orange", name="Random"),
-        "NeverTreat_Policy" => (color="gray", name="NeverTreat"),
-        "AlwaysTreat_Policy" => (color="red", name="AlwaysTreat")
-    )
-    
     # Process each policy
-    for (policy_name, style) in policy_styles
+    for (policy_name, style) in _selected_policy_styles(policies_to_plot)
         try
             # Filter data for this policy
             data_filtered = filter(row -> row.policy == policy_name, parallel_data)
@@ -467,9 +705,9 @@ function plos_one_combined_treatment_probability_over_time(parallel_data, config
             
             # Calculate treatment probabilities over time
             time_steps = 1:config.simulation_config.steps_per_episode
-            treatment_probs = Float64[]
+            treatment_probs = zeros(Float64, length(time_steps))
             
-            for t in time_steps
+            for (idx, t) in enumerate(time_steps)
                 # Count treatment actions (any action that is not NoTreatment)
                 treatment_count = 0
                 total_episodes = 0
@@ -490,19 +728,16 @@ function plos_one_combined_treatment_probability_over_time(parallel_data, config
                 
                 # Calculate treatment probability
                 if total_episodes > 0
-                    prob = treatment_count / total_episodes
-                    push!(treatment_probs, prob)
-                else
-                    push!(treatment_probs, 0.0)
+                    treatment_probs[idx] = treatment_count / total_episodes
                 end
             end
             
             # Create coordinate string for this policy
-            coords = join(["($(t), $(treatment_probs[t]))" for t in 1:length(time_steps)], " ")
+            coords = join(["($(step), $(treatment_probs[idx]))" for (idx, step) in enumerate(time_steps)], " ")
             
             # Add the line plot
-            push!(ax, @pgf("\\addplot[$(style.color), mark=none, line width=1.5pt] coordinates {$(coords)};"))
-            push!(ax, @pgf("\\addlegendentry{$(style.name)}"))
+            push!(ax, @pgf("\\addplot[color=$(style.line), mark=none, line width=1.4pt] coordinates {$(coords)};"))
+            push!(ax, @pgf("\\addlegendentry{$(style.label)}"))
             
         catch e
             @warn "Could not process policy $policy_name: $e"
@@ -510,6 +745,7 @@ function plos_one_combined_treatment_probability_over_time(parallel_data, config
     end
     
     PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "north_treatment_probability_over_time.pdf"), ax)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "north_treatment_probability_over_time.tex"), ax)
     PGFPlotsX.save(joinpath("Quick_Access", "north_treatment_probability_over_time.pdf"), ax)
     return ax
 end
@@ -536,19 +772,7 @@ function plos_one_sarsop_dominant_action(parallel_data, config, λ=0.6)
     fixed_sessile = 0.25  # Constant sessile level
     fixed_motile = 0.25   # Constant motile level
     
-    # Action colors
-    action_colors = Dict(
-        NoTreatment => "blue",
-        MechanicalTreatment => "green",
-        ChemicalTreatment => "orange",
-        ThermalTreatment => "red"
-    )
-    
-    # Create separate coordinate lists for each action
-    no_treatment_coords = []
-    mechanical_coords = []
-    chemical_coords = []
-    thermal_coords = []
+    action_coords = Dict(action => Vector{Tuple{Float64, Float64}}() for (action, _) in PLOS_ACTION_STYLE_ORDERED)
     
     for (i, sealice_level) in enumerate(sealice_range)
         for (j, temp) in enumerate(temp_range)
@@ -583,18 +807,10 @@ function plos_one_sarsop_dominant_action(parallel_data, config, λ=0.6)
                 chosen_action = action(policy, belief)
                 coord = (temp, sealice_level)
                 
-                if chosen_action == NoTreatment
-                    push!(no_treatment_coords, coord)
-                elseif chosen_action == MechanicalTreatment
-                    push!(mechanical_coords, coord)
-                elseif chosen_action == ChemicalTreatment
-                    push!(chemical_coords, coord)
-                elseif chosen_action == ThermalTreatment
-                    push!(thermal_coords, coord)
-                end
+                push!(get!(action_coords, chosen_action, Vector{Tuple{Float64, Float64}}()), coord)
             catch e
                 @warn "Could not get action for temp=$temp, sealice=$sealice_level: $e"
-                push!(no_treatment_coords, (temp, sealice_level))  # Default to no treatment
+                push!(action_coords[NoTreatment], (temp, sealice_level))
             end
         end
     end
@@ -602,49 +818,44 @@ function plos_one_sarsop_dominant_action(parallel_data, config, λ=0.6)
     # Create the plot
     ax = @pgf Axis(Options(
         :xlabel => "Sea Temperature (°C)",
-        :ylabel => "Average Adult Female Sea Lice per Fish",
-        :width => "12cm",
+        :ylabel => "Avg. Adult Female Sea Lice per Fish",
+        :xmin => first(temp_range),
+        :xmax => last(temp_range),
+        :ymin => first(sealice_range),
+        :ymax => last(sealice_range),
+        :width => "14cm",
         :height => "8cm",
-        :title_style => "color=black",
-        :xlabel_style => "color=black",
-        :ylabel_style => "color=black",
-        :tick_label_style => "color=black",
+        :title_style => PLOS_TITLE_STYLE,
+        :xlabel_style => PLOS_LABEL_STYLE,
+        :ylabel_style => PLOS_LABEL_STYLE,
+        :tick_label_style => PLOS_TICK_STYLE,
         "axis background/.style" => Options("fill" => "white"),
-        "legend style" => Options("fill" => "white", "draw" => "black", "text" => "black"),
+        "legend style" => plos_top_legend(columns=2),
+        "grid" => "both",
+        "major grid style" => "dashed, opacity=0.3",
     ))
     
-    # Plot each action type as a scatter plot
-    if !isempty(no_treatment_coords)
-        push!(ax, Plot(Options(:color => "blue", :mark => "square", :mark_size => "1pt", :only_marks => nothing),
-                       Coordinates(no_treatment_coords)))
+    for (action, style) in PLOS_ACTION_STYLE_ORDERED
+        coords = get(action_coords, action, Vector{Tuple{Float64, Float64}}())
+        isempty(coords) && continue
+        push!(ax,
+            Plot(
+                Options(
+                    :only_marks => nothing,
+                    :mark => style.marker,
+                    :mark_size => "2.4pt",
+                    :color => style.color,
+                    "mark options" => style.mark_opts
+                ),
+                Coordinates(coords)
+            )
+        )
+        push!(ax, @pgf("\\addlegendentry{$(style.label)}"))
     end
     
-    if !isempty(mechanical_coords)
-        push!(ax, Plot(Options(:color => "green", :mark => "square", :mark_size => "1pt", :only_marks => nothing),
-                       Coordinates(mechanical_coords)))
-    end
-    
-    if !isempty(chemical_coords)
-        push!(ax, Plot(Options(:color => "orange", :mark => "square", :mark_size => "1pt", :only_marks => nothing),
-                       Coordinates(chemical_coords)))
-    end
-
-    if !isempty(thermal_coords)
-        push!(ax, Plot(Options(:color => "red", :mark => "square", :mark_size => "1pt", :only_marks => nothing),
-                       Coordinates(thermal_coords)))
-    end
-    
-    # Add legend with correct colors
-    push!(ax, @pgf("\\addlegendimage{blue, mark=square, mark size=3pt}"))
-    push!(ax, @pgf("\\addlegendentry{No Treatment}"))
-    push!(ax, @pgf("\\addlegendimage{green, mark=square, mark size=3pt}"))
-    push!(ax, @pgf("\\addlegendentry{Mechanical Treatment}"))
-    push!(ax, @pgf("\\addlegendimage{orange, mark=square, mark size=3pt}"))
-    push!(ax, @pgf("\\addlegendentry{Chemical Treatment}"))
-    push!(ax, @pgf("\\addlegendimage{red, mark=square, mark size=3pt}"))
-    push!(ax, @pgf("\\addlegendentry{Thermal Treatment}"))
-    
+    mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
     PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "norway_sarsop_dominant_action.pdf"), ax)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "norway_sarsop_dominant_action.tex"), ax)
     save_transparent_png(joinpath(config.figures_dir, "Plos_One_Plots", "norway_sarsop_dominant_action.pdf"), ax)
     return ax
 end
@@ -693,20 +904,24 @@ function plot_kalman_filter_trajectory_with_uncertainty(data, algo_name, config,
     # Only plot Adult female sea lice (index 1)
     i = 1  # Adult index
     
+    ticks, labels = plos_time_ticks(config)
+
     # Create the plot using single axis
     ax = @pgf Axis(Options(
         :width => "18cm",
         :height => "6cm",
         :title => "Kalman Filter Estimation Error with 3σ Uncertainty Band",
         :title_style => "color=black",
-        :xlabel => "Time (Weeks)",
+        :xlabel => "Time of Year",
         :ylabel => "Estimation Error (True - KF Mean)",
         :xlabel_style => "color=black",
         :ylabel_style => "color=black",
         :tick_label_style => "color=black",
         :xmin => 0,
+        :xtick => ticks,
+        :xticklabels => labels,
         "axis background/.style" => Options("fill" => "white"),
-        "legend style" => Options("fill" => "white", "draw" => "black", "text" => "black"),
+        "legend style" => plos_top_legend(columns=4),
     ))
     
     # Time steps
@@ -753,6 +968,7 @@ function plot_kalman_filter_trajectory_with_uncertainty(data, algo_name, config,
     mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
     mkpath("Quick_Access")
     PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "kalman_filter_trajectory_3sigma_$(algo_name)_lambda_$(lambda)_latex.pdf"), ax)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "kalman_filter_trajectory_3sigma_$(algo_name)_lambda_$(lambda)_latex.tex"), ax)
     return ax
 end
 
@@ -834,6 +1050,8 @@ function plot_kalman_filter_belief_trajectory_two_panel(data, algo_name, config,
     treat_idx = [k for k in eachindex(action_tags) if !isempty(action_tags[k])]
     treat_lbl = action_tags[treat_idx]
 
+    ticks, labels = plos_time_ticks(config)
+
     # Figure: groupplot with two rows, shared x
     gp = @pgf GroupPlot(
         {
@@ -851,19 +1069,15 @@ function plot_kalman_filter_belief_trajectory_two_panel(data, algo_name, config,
     # --- TOP: levels ---------------------------------------------------------
     ax1 = @pgf Axis(Options(
         "title" => "Kalman Belief vs. True and Observed (Adult Female Lice)",
-        "xlabel" => "Weeks since production start",
+        :xtick => ticks,
+        :xticklabels => labels,
+        "xlabel" => "Time of Year",
         "ylabel" => "Avg. adult female lice / fish",
         "xmin" => 0,
         "ymin" => 0,
         "grid" => "both",
         "major grid style" => "dashed, opacity=0.35",
-        "legend style" => Options(
-            "draw" => "black",
-            "fill" => "white",
-            "font" => "\\scriptsize",
-            "at" => "{(0.02,0.98)}",
-            "anchor" => "north west",
-        ),
+        "legend style" => plos_top_legend(columns=4),
         "tick label style" => "{/pgf/number format/fixed}",
         "clip marker paths" => true,
     ))
@@ -911,17 +1125,13 @@ function plot_kalman_filter_belief_trajectory_two_panel(data, algo_name, config,
 
     # --- BOTTOM: residuals ---------------------------------------------------
     ax2 = @pgf Axis(Options(
-        "xlabel" => "Weeks since production start",
+        :xtick => ticks,
+        :xticklabels => labels,
+        "xlabel" => "Time of Year",
         "ylabel" => "Residual (belief − true)",
         "grid"   => "both",
         "major grid style" => "dashed, opacity=0.35",
-        "legend style" => Options(
-            "draw" => "black",
-            "fill" => "white",
-            "font" => "\\scriptsize",
-            "at" => "{(0.02,0.98)}",
-            "anchor" => "north west",
-        ),
+        "legend style" => plos_top_legend(columns=4),
         "tick label style" => "{/pgf/number format/fixed}",
         "xmin" => 0,
     ))
@@ -959,8 +1169,10 @@ function plot_kalman_filter_belief_trajectory_two_panel(data, algo_name, config,
     mkpath("Quick_Access")
     mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
     out1 = joinpath(config.figures_dir, "Plos_One_Plots", "2_panel_kalman_filter_belief_trajectory_$(algo_name)_lambda_$(λ)_latex.pdf")
+    out1_tex = joinpath(config.figures_dir, "Plos_One_Plots", "2_panel_kalman_filter_belief_trajectory_$(algo_name)_lambda_$(λ)_latex.tex")
     out2 = joinpath("Quick_Access", "2_panel_kalman_filter_belief_trajectory_$(algo_name)_lambda_$(λ)_latex.pdf")
     PGFPlotsX.save(out1, gp)
+    PGFPlotsX.save(out1_tex, gp)
     PGFPlotsX.save(out2, gp)
     return gp
 end
@@ -1024,7 +1236,7 @@ function plos_one_algo_sealice_levels_over_time(config, algo_name, lambda_value)
         ]
             if !isempty(step_data)
                 mean_level = mean(step_data)
-                std_level = std(step_data)
+                std_level = _std_with_guard(step_data)
                 n_episodes = length(step_data)
                 se_level = std_level / sqrt(n_episodes)  # Standard error
                 ci_margin = 1.96 * se_level  # 95% CI margin
@@ -1040,74 +1252,64 @@ function plos_one_algo_sealice_levels_over_time(config, algo_name, lambda_value)
         end
     end
 
-    # Create the plot using PGFPlotsX (same style as other plots)
+    ticks, labels = plos_time_ticks(config)
     ax = @pgf Axis(Options(
         :width => "18cm",
         :height => "6cm",
-        :xlabel => "Time Since Production Start (Weeks)",
+        :xlabel => "Time of Year",
         :ylabel => "Avg. Lice per Fish",
-        :xlabel_style => "color=black",
-        :ylabel_style => "color=black",
-        :tick_label_style => "color=black",
+        :xlabel_style => PLOS_LABEL_STYLE,
+        :ylabel_style => PLOS_LABEL_STYLE,
+        :tick_label_style => PLOS_TICK_STYLE,
         :xmin => 0,
         :xmax => config.simulation_config.steps_per_episode,
         :ymin => 0,
+        :xtick => ticks,
+        :xticklabels => labels,
         "axis background/.style" => Options("fill" => "white"),
-        "legend style" => Options(
-            "fill" => "white",
-            "draw" => "black",
-            "text" => "black",
-            "font" => "\\scriptsize",
-            "at" => "{(0.98,0.98)}",
-            "anchor" => "north east",
-            "cells" => "{anchor=west}"
-        ),
+        "legend style" => plos_top_legend(columns=7),
         "grid" => "both",
         "major grid style" => "dashed, opacity=0.35",
     ))
 
-    # Define stages with colors
-    stages = [
-        ("Adult", mean_adult, ci_lower_adult, ci_upper_adult, "blue"),
-        ("Sessile", mean_sessile, ci_lower_sessile, ci_upper_sessile, "green"),
-        ("Motile", mean_motile, ci_lower_motile, ci_upper_motile, "orange"),
-        ("Predicted", mean_predicted, ci_lower_predicted, ci_upper_predicted, "red")
+    stage_series = [
+        (; key = :adult,     mean = mean_adult,     lower = ci_lower_adult,     upper = ci_upper_adult),
+        (; key = :sessile,   mean = mean_sessile,   lower = ci_lower_sessile,   upper = ci_upper_sessile),
+        (; key = :motile,    mean = mean_motile,    lower = ci_lower_motile,    upper = ci_upper_motile),
+        (; key = :predicted, mean = mean_predicted, lower = ci_lower_predicted, upper = ci_upper_predicted),
     ]
 
-    # Plot each stage
-    for (stage_name, mean_data, ci_lower_data, ci_upper_data, color) in stages
-        # Remove NaN values
-        valid_indices = .!isnan.(mean_data) .&& .!isnan.(ci_lower_data) .&& .!isnan.(ci_upper_data)
+    for series in stage_series
+        style = PLOS_STAGE_STYLE_LOOKUP[series.key]
+        valid_indices = .!isnan.(series.mean) .&& .!isnan.(series.lower) .&& .!isnan.(series.upper)
+        if any(valid_indices)
+            valid_time = time_steps[valid_indices]
+            valid_mean = series.mean[valid_indices]
+            valid_lower = series.lower[valid_indices]
+            valid_upper = series.upper[valid_indices]
 
-        if sum(valid_indices) > 0
-            valid_time_steps = time_steps[valid_indices]
-            valid_mean = mean_data[valid_indices]
-            valid_ci_lower = ci_lower_data[valid_indices]
-            valid_ci_upper = ci_upper_data[valid_indices]
+            mean_coords = join(["($(valid_time[j]), $(valid_mean[j]))" for j in 1:length(valid_time)], " ")
+            upper_coords = join(["($(valid_time[j]), $(valid_upper[j]))" for j in 1:length(valid_time)], " ")
+            lower_coords = join(["($(valid_time[j]), $(valid_lower[j]))" for j in 1:length(valid_time)], " ")
 
-            # Create coordinate strings for PGFPlotsX
-            mean_coords = join(["($(valid_time_steps[j]), $(valid_mean[j]))" for j in 1:length(valid_time_steps)], " ")
-            upper_coords = join(["($(valid_time_steps[j]), $(valid_ci_upper[j]))" for j in 1:length(valid_time_steps)], " ")
-            lower_coords = join(["($(valid_time_steps[j]), $(valid_ci_lower[j]))" for j in 1:length(valid_time_steps)], " ")
+            safe_name = replace(style.label, r"[^A-Za-z0-9]" => "")
 
-            # Create safe path name without special characters
-            safe_name = replace(stage_name, " " => "", "-" => "")
+            push!(ax, @pgf("\\addplot[name path=upper$(safe_name), draw=none, forget plot] coordinates {$(upper_coords)};"))
+            push!(ax, @pgf("\\addplot[name path=lower$(safe_name), draw=none, forget plot] coordinates {$(lower_coords)};"))
+            push!(ax, @pgf("\\addplot[forget plot, fill=$(style.fill), fill opacity=$(PLOS_FILL_OPACITY)] fill between[of=upper$(safe_name) and lower$(safe_name)];"))
 
-            # Add confidence interval fill
-            push!(ax, @pgf("\\addplot[name path=upper$(safe_name), $(color), mark=none, line width=0.5pt, forget plot] coordinates {$(upper_coords)};"))
-            push!(ax, @pgf("\\addplot[name path=lower$(safe_name), $(color), mark=none, line width=0.5pt, forget plot] coordinates {$(lower_coords)};"))
-            push!(ax, @pgf("\\addplot[$(color), fill opacity=0.3, forget plot] fill between[of=upper$(safe_name) and lower$(safe_name)];"))
-
-            # Add the mean line
-            push!(ax, @pgf("\\addplot[$(color), mark=none, line width=1.5pt] coordinates {$(mean_coords)};"))
-            push!(ax, @pgf("\\addlegendentry{$(stage_name)}"))
+            push!(ax, @pgf("\\addplot[color=$(style.line), mark=none, line width=1.4pt] coordinates {$(mean_coords)};"))
+            push!(ax, @pgf("\\addlegendentry{$(style.label)}"))
         end
     end
 
-    # Save the plot
+    push!(ax, @pgf("\\addplot[black!70, densely dashed, line width=1pt] coordinates {(0,0.5) ($(config.simulation_config.steps_per_episode),0.5)};"))
+    push!(ax, @pgf("\\addlegendentry{Reg. limit (0.5)}"))
+
     mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
     mkpath("Quick_Access")
     PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "$(algo_name)_sealice_levels_lambda_$(lambda_value).pdf"), ax)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "$(algo_name)_sealice_levels_lambda_$(lambda_value).tex"), ax)
     PGFPlotsX.save(joinpath("Quick_Access", "$(algo_name)_sealice_levels_lambda_$(lambda_value).pdf"), ax)
 
     return ax
@@ -1185,14 +1387,7 @@ function plos_one_treatment_distribution_comparison(parallel_data, config)
         :xtick => "data",
         :xticklabels => "{" * join(treatment_labels, ",") * "}",
         "axis background/.style" => Options("fill" => "white"),
-        "legend style" => Options(
-            "fill" => "white",
-            "draw" => "black",
-            "text" => "black",
-            "font" => "\\scriptsize",
-            "at" => "{(0.98,0.98)}",
-            "anchor" => "north east"
-        ),
+        "legend style" => plos_top_legend(columns=2),
         "grid" => "both",
         "major grid style" => "dashed, opacity=0.35",
     ))
@@ -1210,6 +1405,7 @@ function plos_one_treatment_distribution_comparison(parallel_data, config)
     mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
     mkpath("Quick_Access")
     PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "north_treatment_distribution.pdf"), ax)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "north_treatment_distribution.tex"), ax)
     PGFPlotsX.save(joinpath("Quick_Access", "north_treatment_distribution.pdf"), ax)
 
     return ax

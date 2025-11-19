@@ -5,16 +5,6 @@ using JLD2
 using POMDPs
 using POMDPTools
 
-const PARALLEL_ACTION_TAG = Dict(
-    NoTreatment => "",
-    MechanicalTreatment => "M",
-    ChemicalTreatment => "C",
-    ThermalTreatment => "Th",
-)
-
-action_short_label(a) = get(PARALLEL_ACTION_TAG, a, "")
-
-
 # Preamble: enable fillbetween and modern pgfplots behavior
 PGFPlotsX.DEFAULT_PREAMBLE = [
     raw"\usepackage{pgfplots}",

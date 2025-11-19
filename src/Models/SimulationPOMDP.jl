@@ -341,12 +341,6 @@ function POMDPs.reward(pomdp::SeaLiceSimPOMDP, s::EvaluationState, a::Action, sp
     # At 2.0: 2.00 × 1.30 = 2.60 (much milder than 3.50)
     sea_lice_penalty = s.Adult * (1.0 + 0.2 * max(0, s.Adult - 0.5))
 
-    print("\n\ntreatment_cost: ", treatment_cost)
-    print("\nregulatory_penalty: ", regulatory_penalty)
-    print("\ntotal_biomass_loss: ", total_biomass_loss)
-    print("\nfish_health_penalty", fish_health_penalty)
-    print("\nsea_lice_penalty", sea_lice_penalty)
-
     # === TOTAL REWARD ===
     return -(
         λ_trt * treatment_cost +
