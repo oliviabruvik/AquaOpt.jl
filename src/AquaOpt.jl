@@ -131,22 +131,22 @@ function run_experiments(mode, location)
 
 
 
-    reward_lambdas1 = [0.4, 0.1, 0.1, 0.15, 0.1] # [treatment, regulatory, biomass, health, sea lice]
+    reward_lambdas1 = [0.46, 0.12, 0.12, 0.18, 0.12] # [treatment, regulatory, biomass, health, sea lice]
     main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location="north", ekf_filter=false, plot=true, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas1)
     main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location="west", ekf_filter=false, plot=true, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas1)
     main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location="south", ekf_filter=false, plot=true, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas1)
 
     # Option 2: Cost-focused (prioritize economics over welfare)
     # reward_lambdas2 = [0.4, 0.02, 0.1, 2.0, 0.8] # [treatment, regulatory, biomass, health, sea lice]
-    reward_lambdas2 = [0.4, 0.2, 0.1, 0.0, 0.1] # [treatment, regulatory, biomass, health, sea lice]
-    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location="north", ekf_filter=false, plot=true, reward_lambdas=reward_lambdas2, sim_reward_lambdas=reward_lambdas2)
-    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location="west", ekf_filter=false, plot=true, reward_lambdas=reward_lambdas2, sim_reward_lambdas=reward_lambdas2)
+    reward_lambdas2 = [0.55, 0.10, 0.20, 0.05, 0.10] # [treatment, regulatory, biomass, health, sea lice]
+    # main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location="north", ekf_filter=false, plot=true, reward_lambdas=reward_lambdas2, sim_reward_lambdas=reward_lambdas2)
+    # main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location="west", ekf_filter=false, plot=true, reward_lambdas=reward_lambdas2, sim_reward_lambdas=reward_lambdas2)
     main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location="south", ekf_filter=false, plot=true, reward_lambdas=reward_lambdas2, sim_reward_lambdas=reward_lambdas2)
 
     # Option 3: Welfare-focused (prioritize fish health and avoid over-treatment)
-    reward_lambdas3 = [0.4, 0.1, 0.1, 0.5, 0.2] # [treatment, regulatory, biomass, health, sea lice]
-    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location="north", ekf_filter=false, plot=true, reward_lambdas=reward_lambdas3, sim_reward_lambdas=reward_lambdas3)
-    main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location="west", ekf_filter=false, plot=true, reward_lambdas=reward_lambdas3, sim_reward_lambdas=reward_lambdas3)
+    reward_lambdas3 = [0.15, 0.05, 0.10, 0.35, 0.35] # [treatment, regulatory, biomass, health, sea lice]
+    # main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location="north", ekf_filter=false, plot=true, reward_lambdas=reward_lambdas3, sim_reward_lambdas=reward_lambdas3)
+    # main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location="west", ekf_filter=false, plot=true, reward_lambdas=reward_lambdas3, sim_reward_lambdas=reward_lambdas3)
     main(first_step_flag="solve", log_space=true, experiment_name="log_space_ukf", mode=mode, location="south", ekf_filter=false, plot=true, reward_lambdas=reward_lambdas3, sim_reward_lambdas=reward_lambdas3)
     
 
@@ -291,6 +291,9 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
             discount_factor = 0.95,
             discretization_step = 0.01,
             location = location, # "north", "west", or "south"
+            heuristic_belief_threshold_mechanical=0.45,
+            heuristic_belief_threshold_chemical=0.4,
+            heuristic_belief_threshold_thermal=0.475,
             full_observability_solver = false, # Toggles whether we have full observability in the observation function or not (false). Pairs with high_fidelity_sim = false.
         )
         sim_cfg = SimulationConfig(
