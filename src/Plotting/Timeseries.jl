@@ -2,16 +2,6 @@ using Plots
 using JLD2
 using GaussianFilters
 
-const TIMESERIES_ACTION_TAG = Dict(
-    NoTreatment => "",
-    MechanicalTreatment => "M",
-    ChemicalTreatment => "C",
-    ThermalTreatment => "Th",
-)
-
-action_short_label(a) = get(TIMESERIES_ACTION_TAG, a, "")
-
-
 # ----------------------------
 # Plot 1: Time series by location
 # ----------------------------

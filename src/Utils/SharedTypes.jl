@@ -71,10 +71,10 @@ if !isdefined(Main, :ACTION_CONFIGS)
 
         ChemicalTreatment => ActionConfig(
             action = ChemicalTreatment,
-            cost = 10.0,  # MNOK per treatment
-            adult_reduction = 0.75,   # 75% reduction
-            motile_reduction = 0.84,  # 84% reduction
-            sessile_reduction = 0.74, # 74% reduction
+            cost = 8.0,  # MNOK per treatment
+            adult_reduction = 0.60,   # 80% reduction
+            motile_reduction = 0.58,  # 84% reduction
+            sessile_reduction = 0.37, # 74% reduction
             name = "Chemical Treatment",
             description = "Standard chemical treatment for sea lice control",
             duration_days = 7,
