@@ -235,7 +235,7 @@ function main(;first_step_flag="solve", log_space=true, experiment_name="exp", m
     processed_data = extract_reward_metrics(parallel_data, config)
 
     # Display reward metrics
-    display_reward_metrics(processed_data, config, false)
+    display_reward_metrics(processed_data, config, true, true)
 
     if plot
         # Plot the results
@@ -261,9 +261,9 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
         solver_cfg = SolverConfig(
             log_space=log_space,
             reward_lambdas=reward_lambdas, # [1.0, 3.0, 0.5, 0.01, 0.0], # [treatment, regulatory, biomass, health, sea lice]
-            sarsop_max_time=30.0,
-            VI_max_iterations=30,
-            QMDP_max_iterations=30,
+            sarsop_max_time=5.0,
+            VI_max_iterations=5,
+            QMDP_max_iterations=5,
             discount_factor = 0.95,
             discretization_step = 0.1,
             location = location, # "north", "west", or "south"
@@ -298,7 +298,7 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
         )
         sim_cfg = SimulationConfig(
             num_episodes=1000,
-            steps_per_episode=104,
+            steps_per_episode=100,
             ekf_filter=ekf_filter,
             n_sample=100,
             sim_reward_lambdas = sim_reward_lambdas,  # [treatment, regulatory, biomass, health, sea_lice]
