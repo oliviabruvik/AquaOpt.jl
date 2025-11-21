@@ -57,8 +57,12 @@ function _clamp_values!(vec, ymin, ymax)
     return vec
 end
 
-function _annotate_reg_limit!(ax, xmax, y; label="Reg. limit (0.5)")
-    push!(ax, @pgf("""\\node[anchor=west, font=\\scriptsize, text=black!70] at (axis cs:0.5, $(y)+0.04) {$label};"""))
+function _add_reg_limit!(ax, xmax, y; label="Reg. limit (0.5)")
+    xmax_val = float(xmax)
+    push!(ax, @pgf("\\addplot[black!70, densely dashed, line width=1pt] coordinates {(0,$(y)) ($(xmax_val),$(y))};"))
+    label_x = min(0.5, xmax_val)
+    label_y = y + 0.04
+    push!(ax, @pgf("""\\node[anchor=west, font=\\scriptsize, text=black!70] at (axis cs:$(label_x), $(label_y)) {$label};"""))
 end
 
 function _selected_policy_styles(policies_to_plot)
@@ -216,8 +220,7 @@ function plos_one_plot_kalman_filter_belief_trajectory(data, algo_name, config, 
         "legend style" => plos_top_legend(columns=4),
     ))
 
-    push!(ax, @pgf("\\addplot[black!70, densely dashed, line width=1pt] coordinates {(0,0.5) ($(config.simulation_config.steps_per_episode),0.5)};"))
-    _annotate_reg_limit!(ax, config.simulation_config.steps_per_episode, 0.5)
+    _add_reg_limit!(ax, config.simulation_config.steps_per_episode, 0.5)
 
     # Time steps
     time_steps = 1:size(belief_means, 1)
@@ -397,8 +400,7 @@ function plos_one_sealice_levels_over_time(parallel_data, config;
         end
     end
 
-    push!(ax, @pgf("\\addplot[black!70, densely dashed, line width=1pt] coordinates {(0,0.5) ($(config.simulation_config.steps_per_episode),0.5)};"))
-    _annotate_reg_limit!(ax, config.simulation_config.steps_per_episode, 0.5)
+    _add_reg_limit!(ax, config.simulation_config.steps_per_episode, 0.5)
 
     mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
     mkpath("Quick_Access")
@@ -517,8 +519,7 @@ function _plot_episode_data!(ax, parallel_data, policy_name, style, episode_id, 
         treatment_legend_added = _add_treatments!(ax, states, actions, show_legend && !treatment_legend_exists)
 
         # Add regulatory limit
-        push!(ax, @pgf("\\addplot[black!70, densely dashed, line width=1pt] coordinates {(0,0.5) ($(config.simulation_config.steps_per_episode),0.5)};"))
-        _annotate_reg_limit!(ax, config.simulation_config.steps_per_episode, 0.5)
+        _add_reg_limit!(ax, config.simulation_config.steps_per_episode, 0.5)
 
         return (policy_legend_added=policy_legend_added, treatment_legend_added=treatment_legend_added)
     catch e
@@ -707,7 +708,7 @@ function _plos_one_metric_plot(parallel_data, config, compute_step_value;
     mkpath("Quick_Access")
     PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", file_suffix), ax)
     tex_suffix = replace(file_suffix, ".pdf" => ".tex")
-    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", tex_suffix), ax)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", tex_suffix), ax; include_preamble=false)
     PGFPlotsX.save(joinpath("Quick_Access", file_suffix), ax)
     return ax
 end
@@ -761,7 +762,6 @@ function plos_one_biomass_loss_over_time(parallel_data, config; policies_to_plot
         ylabel = "Cumulative Biomass Loss (tons)",
         file_suffix = "north_biomass_loss_over_time.pdf",
         ymin = 0.0,
-        ymax = 0.1,
         policies_to_plot = policies_to_plot,
         show_legend = show_legend,
     )
@@ -1321,7 +1321,7 @@ function plot_kalman_filter_belief_trajectory_two_panel(data, algo_name, config,
     out1_tex = joinpath(config.figures_dir, "Plos_One_Plots", "2_panel_kalman_filter_belief_trajectory_$(algo_name)_lambda_$(λ)_latex.tex")
     out2 = joinpath("Quick_Access", "2_panel_kalman_filter_belief_trajectory_$(algo_name)_lambda_$(λ)_latex.pdf")
     PGFPlotsX.save(out1, gp)
-    PGFPlotsX.save(out1_tex, gp)
+    PGFPlotsX.save(out1_tex, gp; include_preamble=false)
     PGFPlotsX.save(out2, gp)
     return gp
 end
@@ -1452,8 +1452,15 @@ function plos_one_algo_sealice_levels_over_time(config, algo_name, lambda_value)
         end
     end
 
-    push!(ax, @pgf("\\addplot[black!70, densely dashed, line width=1pt] coordinates {(0,0.5) ($(config.simulation_config.steps_per_episode),0.5)};"))
-    _annotate_reg_limit!(ax, config.simulation_config.steps_per_episode, 0.5)
+    ymax_candidates = Float64[]
+    for series in stage_series
+        valid_upper = series.upper[.!isnan.(series.upper)]
+        isempty(valid_upper) && continue
+        push!(ymax_candidates, maximum(valid_upper))
+    end
+    ymax_val = isempty(ymax_candidates) ? nothing : maximum(ymax_candidates)
+
+    _add_reg_limit!(ax, config.simulation_config.steps_per_episode, 0.5)
 
     mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
     mkpath("Quick_Access")

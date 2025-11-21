@@ -5,6 +5,8 @@ isnothing(Base.active_project()) && @warn "No active Julia project detected. Run
 using AquaOpt
 using JLD2
 using Printf: @sprintf
+using CSV
+using DataFrames
 
 const REPO_ROOT = abspath(joinpath(@__DIR__, ".."))
 
@@ -24,6 +26,12 @@ const SOURCE_MODEL = "Model assumption"
 const SOURCE_STIGE = "Stige et al. (2025)"
 const TREATMENT_ACTIONS = (NoTreatment, MechanicalTreatment, ThermalTreatment, ChemicalTreatment)
 const TREATMENT_SYMBOLS = (raw"$a_1$", raw"$a_2$", raw"$a_3$", raw"$a_4$")
+const POLICY_ORDER_SUMMARY = [
+    "Heuristic_Policy",
+    "QMDP_Policy",
+    "NUS_SARSOP_Policy",
+    "VI_Policy",
+]
 
 function load_experiment_config()
     cfg_path = joinpath(EXPERIMENT_PATH, "config", "experiment_config.jld2")
@@ -47,7 +55,7 @@ end
 format_float(value::Real; digits::Int=3) =
     strip_trailing_zeros(@sprintf("%.*f", digits, Float64(value)))
 
-format_number(value::Integer; digits::Int=0) = string(value)
+format_number(value::Integer; digits::Int=0) = digits == 0 ? string(value) : strip_trailing_zeros(@sprintf("%.*f", digits, Float64(value)))
 format_number(value::Real; digits::Int=3) = format_float(value; digits=digits)
 
 format_bool(flag::Bool) = flag ? "\\texttt{true}" : "\\texttt{false}"
@@ -137,6 +145,30 @@ function write_lambda_table(headers::Vector{String}, rows::Vector{Vector{String}
         push!(lines, "        " * join(row, " & ") * " \\\\")
     end
     push!(lines, "        \\bottomrule")
+    push!(lines, "    \\end{tabular}")
+    push!(lines, "\\end{table}")
+    output_path = joinpath(OUTPUT_DIR, filename)
+    open(output_path, "w") do io
+        write(io, join(lines, "\n"))
+    end
+    return output_path
+end
+
+function write_location_table(rows; filename::String, caption::String, label::String)
+    mkpath(OUTPUT_DIR)
+    lines = String[]
+    push!(lines, "\\begin{table}[htbp!]")
+    push!(lines, "\\centering")
+    push!(lines, "    \\caption{$caption}")
+    push!(lines, "    \\label{$label}")
+    push!(lines, "    \\begin{tabular}{@{}lccc l@{}}")
+    push!(lines, "    \\toprule")
+    push!(lines, "    Parameter & North & West & South & Description \\\\")
+    push!(lines, "    \\midrule")
+    for row in rows
+        push!(lines, "    $(row.parameter) & $(row.north) & $(row.west) & $(row.south) & $(row.description) \\\\")
+    end
+    push!(lines, "    \\bottomrule")
     push!(lines, "    \\end{tabular}")
     push!(lines, "\\end{table}")
     output_path = joinpath(OUTPUT_DIR, filename)
@@ -379,6 +411,90 @@ function observation_model_sections(config::ExperimentConfig)
     ]
 end
 
+const LOCATION_ORDER = ["north", "west", "south"]
+
+function location_value(params::Dict{String, LocationParams}, loc::String, field::Symbol)
+    value = getfield(params[loc], field)
+    formatted = @sprintf("%0.2f", Float64(value))
+    return raw"$" * formatted * raw"$"
+end
+
+function location_row(params::Dict{String, LocationParams}, label::String, field::Symbol, description::String)
+    return (
+        parameter=label,
+        north=location_value(params, "north", field),
+        west=location_value(params, "west", field),
+        south=location_value(params, "south", field),
+        description=description,
+    )
+end
+
+function location_dynamics_rows()
+    params = Dict(loc => get_location_params(loc) for loc in LOCATION_ORDER)
+    rows = [
+        (
+            parameter=raw"Mean temperature ($T_{\text{mean}}$)",
+            north=location_value(params, "north", :T_mean),
+            west=location_value(params, "west", :T_mean),
+            south=location_value(params, "south", :T_mean),
+            description="Average annual sea temperature (\\si{\\celsius})",
+        ),
+        (
+            parameter=raw"Temperature amplitude ($T_{\text{amp}}$)",
+            north=location_value(params, "north", :T_amp),
+            west=location_value(params, "west", :T_amp),
+            south=location_value(params, "south", :T_amp),
+            description="Seasonal temperature swing (\\si{\\celsius})",
+        ),
+        (
+            parameter="Peak temperature week",
+            north=location_value(params, "north", :peak_week),
+            west=location_value(params, "west", :peak_week),
+            south=location_value(params, "south", :peak_week),
+            description="Week of maximum temperature",
+        ),
+        location_row(params, raw"$d_1$ intercept", :d1_intercept, "Sessile→motile development intercept"),
+        location_row(params, raw"$d_1$ temperature coefficient", :d1_temp_coef, "Temperature effect on sessile→motile"),
+        location_row(params, raw"$d_2$ intercept", :d2_intercept, "Motile→adult development intercept"),
+        location_row(params, raw"$d_2$ temperature coefficient", :d2_temp_coef, "Temperature effect on motile→adult"),
+        location_row(params, raw"Sessile survival ($s_1$)", :s1_sessile, "Weekly sessile survival probability"),
+        location_row(params, raw"Sessile→motile scaling ($s_2$)", :s2_scaling, "Scaling from sessile to motile stage"),
+        location_row(params, raw"Motile survival ($s_3$)", :s3_motile, "Weekly motile survival probability"),
+        location_row(params, raw"Adult survival ($s_4$)", :s4_adult, "Weekly adult survival probability"),
+        location_row(params, "External larval influx", :external_influx, "Weekly external sessile influx"),
+    ]
+    return rows
+end
+
+function load_reward_metrics(config::ExperimentConfig; λ::Float64=0.6)
+    csv_path = joinpath(config.results_dir, "reward_metrics_lambda_$(λ).csv")
+    isfile(csv_path) || error("Missing reward metrics at $(csv_path)")
+    df = CSV.read(csv_path, DataFrame)
+    return df
+end
+
+function format_metric(value::Real)
+    return latex_math(value; digits=2)
+end
+
+function policy_metrics_rows(df::DataFrame)
+    rows = Vector{Vector{String}}()
+    for policy in POLICY_ORDER_SUMMARY
+        idx = findfirst(==(policy), df.policy)
+        idx === nothing && continue
+        row = [
+            format_text(replace(policy, "_" => "\\_")),
+            format_metric(df[idx, :mean_reward]),
+            format_metric(df[idx, :mean_mean_adult_sea_lice_level]),
+            format_metric(df[idx, :mean_num_regulatory_penalties]),
+            format_metric(df[idx, :mean_lost_biomass_1000kg]),
+        ]
+        push!(rows, row)
+    end
+    isempty(rows) && @warn "No policies found for summary table."
+    return rows
+end
+
 function solver_lambda_rows(config::ExperimentConfig)
     lambdas = config.solver_config.reward_lambdas
     length(lambdas) == 5 || error("Expected 5 solver reward weights, found $(length(lambdas))")
@@ -442,12 +558,23 @@ function main()
         filename="observation_parameters.tex",
         caption="Observation model parameters for sea lice monitoring and environmental measurements.",
         label="tab:observation_params"))
+    push!(outputs, write_location_table(location_dynamics_rows();
+        filename="regional_dynamics.tex",
+        caption="Regional temperature and development dynamics for Norwegian sites.",
+        label="tab:regional_dynamics"))
     push!(outputs, write_lambda_table(
         ["Region", raw"$\lambda_{trt}$", raw"$\lambda_{reg}$", raw"$\lambda_{bio}$", raw"$\lambda_{fd}$", raw"$\lambda_{lice}$"],
         [solver_lambda_rows(config)];
         filename="reward_lambda_parameters.tex",
         caption="Regional reward weights for solver optimization.",
         label="tab:reward_lambdas"))
+    reward_df = load_reward_metrics(config)
+    push!(outputs, write_lambda_table(
+        ["Policy", "Mean reward", "Adult lice", "Regulatory penalties", "Lost biomass (1000 kg)"],
+        policy_metrics_rows(reward_df);
+        filename="policy_evaluation_summary.tex",
+        caption="Policy evaluation summary at target \\(\\lambda\\).",
+        label="tab:policy_summary"))
     push!(outputs, write_treatment_table(treatment_table_rows();
         filename="treatment_parameters.tex",
         caption="Treatment costs, effectiveness, and fish impact.",
