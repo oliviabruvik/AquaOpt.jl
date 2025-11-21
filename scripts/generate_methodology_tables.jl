@@ -121,6 +121,31 @@ function write_table(rows::Vector{Tuple{String, String}}; filename::String, capt
     return output_path
 end
 
+function write_lambda_table(headers::Vector{String}, rows::Vector{Vector{String}}; filename::String, caption::String, label::String)
+    mkpath(OUTPUT_DIR)
+    lines = String[]
+    push!(lines, "\\begin{table}[htbp]")
+    push!(lines, "    \\centering")
+    push!(lines, "    \\caption{$caption}")
+    push!(lines, "    \\label{$label}")
+    col_spec = "@{} " * join(fill("c", length(headers)), " ") * " @{}"
+    push!(lines, "    \\begin{tabular}{" * col_spec * "}")
+    push!(lines, "        \\toprule")
+    push!(lines, "        " * join(headers, " & ") * " \\\\")
+    push!(lines, "        \\midrule")
+    for row in rows
+        push!(lines, "        " * join(row, " & ") * " \\\\")
+    end
+    push!(lines, "        \\bottomrule")
+    push!(lines, "    \\end{tabular}")
+    push!(lines, "\\end{table}")
+    output_path = joinpath(OUTPUT_DIR, filename)
+    open(output_path, "w") do io
+        write(io, join(lines, "\n"))
+    end
+    return output_path
+end
+
 function build_fish_population_table(rows; caption::String, label::String)
     isempty(rows) && error("Cannot build an empty fish population table.")
     lines = String[]
@@ -160,7 +185,7 @@ function write_fish_population_table(rows; filename::String, caption::String, la
     return output_path
 end
 
-function build_sea_lice_biology_table(sections; caption::String, label::String)
+function build_sectioned_table(sections; caption::String, label::String)
     lines = String[]
     push!(lines, "\\begin{table}[htbp!]")
     push!(lines, "\\centering")
@@ -193,10 +218,10 @@ function build_sea_lice_biology_table(sections; caption::String, label::String)
     return join(lines, "\n")
 end
 
-function write_sea_lice_biology_table(sections; filename::String, caption::String, label::String)
+function write_sectioned_table(sections; filename::String, caption::String, label::String)
     mkpath(OUTPUT_DIR)
     output_path = joinpath(OUTPUT_DIR, filename)
-    table_tex = build_sea_lice_biology_table(sections; caption=caption, label=label)
+    table_tex = build_sectioned_table(sections; caption=caption, label=label)
     open(output_path, "w") do io
         write(io, table_tex)
     end
@@ -328,6 +353,39 @@ function sea_lice_biology_sections(config::ExperimentConfig)
     ]
 end
 
+function observation_model_sections(config::ExperimentConfig)
+    sim = config.simulation_config
+    nb_entries = [
+        (parameter=raw"Number of fish sampled ($n$)", value=latex_math(sim.n_sample; digits=0), description="Fish counted per monitoring event", source=SOURCE_ALDRIN),
+        (parameter=raw"Adult aggregation parameter ($\rho_{\text{A}}$)", value=latex_math(sim.ρ_adult; digits=3), description="Over-dispersion for adult lice counts", source=SOURCE_ALDRIN),
+        (parameter=raw"Motile aggregation parameter ($\rho_{\text{M}}$)", value=latex_math(sim.ρ_motile; digits=3), description="Over-dispersion for motile lice counts", source=SOURCE_ALDRIN),
+        (parameter=raw"Sessile aggregation parameter ($\rho_{\text{S}}$)", value=latex_math(sim.ρ_sessile; digits=3), description="Over-dispersion for sessile lice counts", source=SOURCE_ALDRIN),
+    ]
+    undercount_entries = [
+        (parameter=raw"Farm intercept ($\beta_0$)", value=latex_math(sim.beta0_Scount_f; digits=3), description="Logistic function intercept", source=SOURCE_ALDRIN),
+        (parameter=raw"Weight slope ($\beta_1$)", value=latex_math(sim.beta1_Scount; digits=3), description="Weight-dependent correction factor", source=SOURCE_ALDRIN),
+        (parameter=raw"Weight centering ($W_0$)", value=latex_math(sim.W0; digits=2), description="Reference weight (\\si{\\kilogram})", source=SOURCE_ALDRIN),
+        (parameter=raw"Mean fish weight ($W_{\text{mean}}$)", value=latex_math(sim.mean_fish_weight_kg; digits=2), description="Average fish weight (\\si{\\kilogram})", source=SOURCE_ALDRIN),
+    ]
+    gaussian_entries = [
+        (parameter=raw"Temperature noise ($\sigma_T$)", value=latex_math(sim.temp_sd; digits=2), description="Temperature measurement std dev (\\si{\\celsius})", source=SOURCE_MODEL),
+        (parameter=raw"Fish count noise ($\sigma_N$)", value=latex_math(DEFAULT_SIM_POMDP.number_of_fish_sd; digits=1), description="Fish count measurement std dev", source=SOURCE_MODEL),
+        (parameter=raw"Weight noise ($\sigma_W$)", value=latex_math(DEFAULT_SIM_POMDP.weight_sd; digits=2), description="Weight measurement std dev (\\si{\\kilogram})", source=SOURCE_MODEL),
+    ]
+    return [
+        ("\\textbf{Negative Binomial Distribution Parameters}", nb_entries),
+        ("\\textbf{Under-counting Correction Parameters}", undercount_entries),
+        ("\\textbf{Gaussian Noise Parameters}", gaussian_entries),
+    ]
+end
+
+function solver_lambda_rows(config::ExperimentConfig)
+    lambdas = config.solver_config.reward_lambdas
+    length(lambdas) == 5 || error("Expected 5 solver reward weights, found $(length(lambdas))")
+    formatted = [latex_math(val; digits=2) for val in lambdas]
+    return [format_text(config.solver_config.location); formatted]
+end
+
 function treatment_table_rows()
     configs = map(act -> AquaOpt.get_action_config(act), TREATMENT_ACTIONS)
     row(label::String, values, source::String) = begin
@@ -376,10 +434,20 @@ function main()
         filename="fish_population_parameters.tex",
         caption="Fish population and growth model parameters.",
         label="tab:fish_population_params"))
-    push!(outputs, write_sea_lice_biology_table(sea_lice_biology_sections(config);
+    push!(outputs, write_sectioned_table(sea_lice_biology_sections(config);
         filename="sea_lice_biology_parameters.tex",
         caption="Sea lice biology parameters from Stige et al. (2025).",
         label="tab:sea_lice_biology_params"))
+    push!(outputs, write_sectioned_table(observation_model_sections(config);
+        filename="observation_parameters.tex",
+        caption="Observation model parameters for sea lice monitoring and environmental measurements.",
+        label="tab:observation_params"))
+    push!(outputs, write_lambda_table(
+        ["Region", raw"$\lambda_{trt}$", raw"$\lambda_{reg}$", raw"$\lambda_{bio}$", raw"$\lambda_{fd}$", raw"$\lambda_{lice}$"],
+        [solver_lambda_rows(config)];
+        filename="reward_lambda_parameters.tex",
+        caption="Regional reward weights for solver optimization.",
+        label="tab:reward_lambdas"))
     push!(outputs, write_treatment_table(treatment_table_rows();
         filename="treatment_parameters.tex",
         caption="Treatment costs, effectiveness, and fish impact.",
