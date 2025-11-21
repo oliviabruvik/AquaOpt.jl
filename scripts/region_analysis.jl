@@ -22,10 +22,12 @@ Outputs:
 =#
 
 using AquaOpt
+using CSV
 using DataFrames
 using JLD2
 using PGFPlotsX
 using PGFPlotsX: Axis, GroupPlot, Options, Plot, @pgf
+using Printf
 using Statistics
 using POMDPTools: state_hist, action_hist, reward_hist, observation_hist
 
@@ -34,6 +36,24 @@ const WEST_EXPERIMENT = "results/experiments/2025-11-19/2025-11-19T23:17:39.432_
 const NORTH_EXPERIMENT = "results/experiments/2025-11-19/2025-11-19T22:18:33.024_log_space_ukf_paper_north_[0.46, 0.12, 0.12, 0.18, 0.12]"
 const SOUTH_EXPERIMENT = "results/experiments/2025-11-20/2025-11-20T00:17:15.348_log_space_ukf_paper_south_[0.46, 0.12, 0.12, 0.18, 0.12]"
 const DEFAULT_OUTPUT_DIR = "final_results/region_outputs"
+const REGION_TABLE_POLICIES = [
+    (label = "Always Treat", csv_name = "AlwaysTreat_Policy"),
+    (label = "Never Treat", csv_name = "NeverTreat_Policy"),
+    (label = "Random", csv_name = "Random_Policy"),
+    (label = "Heuristic", csv_name = "Heuristic_Policy"),
+    (label = "QMDP", csv_name = "QMDP_Policy"),
+    (label = "SARSOP", csv_name = "NUS_SARSOP_Policy"),
+    (label = "VI", csv_name = "VI_Policy"),
+]
+const REGION_TABLE_METRICS = [
+    (name = :reward, header = "Reward", mean_col = :mean_reward, ci_col = :ci_reward, higher_is_better = true),
+    (name = :treatment_cost, header = "Treatment Cost (MNOK)", mean_col = :mean_treatment_cost, ci_col = :ci_treatment_cost, higher_is_better = false),
+    (name = :penalties, header = "Reg.\\ Penalties", mean_col = :mean_num_regulatory_penalties, ci_col = :ci_num_regulatory_penalties, higher_is_better = false),
+    (name = :lice, header = "Mean AF Lice/Fish", mean_col = :mean_mean_adult_sea_lice_level, ci_col = :ci_mean_adult_sea_lice_level, higher_is_better = false),
+    (name = :biomass, header = "Biomass Loss (tons)", mean_col = :mean_lost_biomass_1000kg, ci_col = :ci_lost_biomass_1000kg, higher_is_better = false),
+    (name = :disease, header = "Fish Disease", mean_col = :mean_fish_disease, ci_col = :ci_fish_disease, higher_is_better = false),
+]
+const REGION_TABLE_ORDER = ["North", "West", "South"]
 
 struct RegionInput
     name::String
@@ -270,6 +290,139 @@ function compute_sarsop_stage_stats(region::RegionData, lambda_value::Float64)
     return stages
 end
 
+function load_reward_metrics(region::RegionData, lambda_value::Float64)
+    csv_path = joinpath(region.config.results_dir, "reward_metrics_lambda_$(lambda_value).csv")
+    isfile(csv_path) || error("Could not find reward metrics CSV for $(region.name) at $csv_path")
+    df = CSV.read(csv_path, DataFrame)
+    rename!(df, Symbol.(names(df)))
+    return df
+end
+
+function build_policy_row_map(df::DataFrame)
+    mapping = Dict{String, DataFrameRow}()
+    for row in eachrow(df)
+        mapping[String(row.policy)] = row
+    end
+    return mapping
+end
+
+function compute_best_policy_sets(policy_rows::Dict{String, DataFrameRow})
+    best_sets = Dict{Symbol, Set{String}}()
+    for metric in REGION_TABLE_METRICS
+        values = Float64[]
+        ordered_policies = String[]
+        for policy in REGION_TABLE_POLICIES
+            csv_name = policy.csv_name
+            haskey(policy_rows, csv_name) || continue
+            push!(ordered_policies, csv_name)
+            push!(values, Float64(policy_rows[csv_name][metric.mean_col]))
+        end
+        isempty(values) && continue
+        target = metric.higher_is_better ? maximum(values) : minimum(values)
+        winners = Set{String}()
+        for (idx, csv_name) in enumerate(ordered_policies)
+            if isapprox(values[idx], target; atol = 1e-6, rtol = 0.0)
+                push!(winners, csv_name)
+            end
+        end
+        best_sets[metric.name] = winners
+    end
+    return best_sets
+end
+
+function format_metric_entry(row::DataFrameRow, metric; highlight::Bool)
+    mean_val = Float64(row[metric.mean_col])
+    ci_val = Float64(row[metric.ci_col])
+    text = @sprintf("%.2f \\pm %.2f", mean_val, ci_val)
+    return highlight ? "\$\\mathBF{$text}\$" : "\$$text\$"
+end
+
+function region_table_block(region::RegionData, lambda_value::Float64)
+    metrics_df = load_reward_metrics(region, lambda_value)
+    policy_rows = build_policy_row_map(metrics_df)
+    best_sets = compute_best_policy_sets(policy_rows)
+    available_policies = [p for p in REGION_TABLE_POLICIES if haskey(policy_rows, p.csv_name)]
+    isempty(available_policies) && return String[]
+
+    lines = String[]
+    multirow_count = length(available_policies)
+    for (idx, policy) in enumerate(available_policies)
+        csv_name = policy.csv_name
+        row = policy_rows[csv_name]
+        entries = String[]
+        for metric in REGION_TABLE_METRICS
+            best_policies = get(best_sets, metric.name, Set{String}())
+            highlight = csv_name in best_policies
+            push!(entries, format_metric_entry(row, metric; highlight))
+        end
+        prefix = idx == 1 ? "    \\multirow{$multirow_count}{*}{$(region.name)} &" : "      &"
+        policy_label = rpad(policy.label, 9)
+        entry_str = join(entries, " & ")
+        push!(lines, "$(prefix) $(policy_label) & $(entry_str) \\\\")
+    end
+    return lines
+end
+
+function generate_region_table(regions::Vector{RegionData}, out_dir::String; lambda_value::Float64 = 0.6)
+    lambda_str = replace(string(lambda_value), "." => "_")
+    output_path = joinpath(out_dir, "region_policy_comparison_lambda_$(lambda_str).tex")
+    lines = String[
+        "\\begin{table}[htbp!]",
+        "\\centering",
+        "\\begin{adjustwidth}{-2.25in}{0in}",
+        "\\caption{Comparison of Policies Across North, West, and South of Norway (common reward--lambda = \$(0.46,0.12,0.12,0.18,0.12)\$)}",
+        "\\label{tab:norway-methods-comparable}",
+        "\\begin{threeparttable}",
+        "  \\begin{adjustbox}{max width=\\linewidth}",
+        "  \\begin{tabular}{@{}llcccccc@{}}",
+        "    \\arrayrulecolor{black}",
+        "    \\toprule",
+        "    Region & Method & " * join([metric.header for metric in REGION_TABLE_METRICS], " & ") * " \\\\",
+        "    \\midrule",
+        "    \\arrayrulecolor{white}",
+    ]
+    region_lookup = Dict(region.name => region for region in regions)
+    ordered_regions = RegionData[]
+    seen_regions = Set{String}()
+    for name in REGION_TABLE_ORDER
+        if haskey(region_lookup, name)
+            push!(ordered_regions, region_lookup[name])
+            push!(seen_regions, name)
+        end
+    end
+    for region in regions
+        region.name in seen_regions && continue
+        push!(ordered_regions, region)
+    end
+
+    region_sections = [(region, region_table_block(region, lambda_value)) for region in ordered_regions]
+    region_sections = [(region, rows) for (region, rows) in region_sections if !isempty(rows)]
+    for (idx, (_, rows)) in enumerate(region_sections)
+        append!(lines, rows)
+        if idx < length(region_sections)
+            push!(lines, "    \\midrule")
+        end
+    end
+    append!(lines, [
+        "    \\arrayrulecolor{black}",
+        "    \\bottomrule",
+        "  \\end{tabular}",
+        "  \\end{adjustbox}",
+        "    \\begin{tablenotes}",
+        "      \\item[*]{Mean \$\\pm\$ standard error over the seeds in the corresponding run. Bold values denote the best performance (highest reward or lowest cost/penalties/lice/biomass loss/fish disease) within each region. Runs used: North, West, and South correspond to the \\texttt{log\\_space\\_ukf\\_paper\\_{north,west,south}\\_[0.46,0.12,0.12,0.18,0.12]} chemical-change experiments.}",
+        "    \\end{tablenotes}",
+        "\\end{threeparttable}",
+        "\\end{adjustwidth}",
+        "\\end{table}",
+    ])
+    mkpath(dirname(output_path))
+    open(output_path, "w") do io
+        write(io, join(lines, "\n"))
+        write(io, "\n")
+    end
+    println("Region comparison table saved to $(abspath(output_path)).")
+end
+
 function time_ticks(config)
     return AquaOpt.plos_time_ticks(config)
 end
@@ -491,6 +644,7 @@ function main()
     save_output(build_group_plot(axes_sealice), joinpath(out_dir, "region_sealice_levels_over_time.pdf"))
     save_output(build_group_plot(axes_cost), joinpath(out_dir, "region_treatment_cost_over_time.pdf"), save_tex=true)
     save_output(build_group_plot(axes_sarsop), joinpath(out_dir, "region_sarsop_sealice_stages_lambda_0.6.pdf"))
+    generate_region_table(regions, out_dir; lambda_value=0.6)
 
     println("Region plots saved under $(abspath(out_dir)).")
 end
