@@ -608,7 +608,7 @@ function save_output(gp, out_pdf::String; save_tex::Bool=false)
     mkpath(dirname(out_pdf))
     PGFPlotsX.save(out_pdf, gp)
     if save_tex
-        PGFPlotsX.save(replace(out_pdf, ".pdf" => ".tex"), gp)
+        PGFPlotsX.save(replace(out_pdf, ".pdf" => ".tex"), gp; include_preamble=false)
     end
 end
 
