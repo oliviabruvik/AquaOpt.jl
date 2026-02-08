@@ -83,35 +83,10 @@ function __init__()
     end
 end
 
-function run_experiments(mode, location)
-
-    plot_flag = false
-
-    # Option 1: Balanced [treatment, regulatory, biomass, health, sea lice]
-    reward_lambdas1 = [0.46, 0.12, 0.12, 0.18, 0.12]
-    main(log_space=true, experiment_name="log_space_ukf", mode=mode, location="north", ekf_filter=false, plot=plot_flag, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas1)
-    main(log_space=true, experiment_name="log_space_ukf", mode=mode, location="west", ekf_filter=false, plot=plot_flag, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas1)
-    main(log_space=true, experiment_name="log_space_ukf", mode=mode, location="south", ekf_filter=false, plot=plot_flag, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas1)
-
-    # Option 2: Cost-focused (prioritize economics over welfare)
-    reward_lambdas2 = [0.55, 0.10, 0.20, 0.05, 0.10]
-    main(log_space=true, experiment_name="log_space_ukf", mode=mode, location="south", ekf_filter=false, plot=plot_flag, reward_lambdas=reward_lambdas2, sim_reward_lambdas=reward_lambdas2)
-
-    # Option 3: Welfare-focused (prioritize fish health and avoid over-treatment)
-    reward_lambdas3 = [0.15, 0.05, 0.10, 0.35, 0.35]
-    main(log_space=true, experiment_name="log_space_ukf", mode=mode, location="south", ekf_filter=false, plot=plot_flag, reward_lambdas=reward_lambdas3, sim_reward_lambdas=reward_lambdas3)
-
-    # Raw space and EKF
-    main(log_space=false, experiment_name="raw_space_ukf", mode=mode, location="north", ekf_filter=false, plot=plot_flag, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas1)
-    main(log_space=true, experiment_name="log_space_ekf", mode=mode, location="north", ekf_filter=true, plot=plot_flag, reward_lambdas=reward_lambdas1, sim_reward_lambdas=reward_lambdas1)
-
-    return
-end
-
 # ----------------------------
 # Main function
 # ----------------------------
-function main(;log_space=true, experiment_name="exp", mode="debug", location="south", ekf_filter=true, plot=false, reward_lambdas::Vector{Float64}, sim_reward_lambdas::Vector{Float64})
+function main(;log_space=true, experiment_name="exp", mode="debug", location="south", ekf_filter=true, plot=false, reward_lambdas::Vector{Float64}=[0.46, 0.12, 0.12, 0.18, 0.12], sim_reward_lambdas::Vector{Float64}=[0.46, 0.12, 0.12, 0.18, 0.12])
 
     config, heuristic_config = setup_experiment_configs(experiment_name, log_space, ekf_filter, mode, location; reward_lambdas=reward_lambdas, sim_reward_lambdas=sim_reward_lambdas)
     algorithms = define_algorithms(config, heuristic_config)
@@ -144,12 +119,13 @@ function main(;log_space=true, experiment_name="exp", mode="debug", location="so
     end
 
     @info "Solving policies"
-    for algo in algorithms
-        generate_mdp_pomdp_policies(algo, config)
-    end
+    # Generate POMDP and MDP once per lambda (shared across algorithms)
+    λ = config.lambda_values[1]
+    pomdp, mdp = create_pomdp_mdp(λ, config)
+    all_policies = solve_policies(algorithms, config, pomdp, mdp)
 
     @info "Simulating policies"
-    parallel_data = simulate_all_policies(algorithms, config)
+    parallel_data = simulate_all_policies(algorithms, config, all_policies)
 
     # If we are simulating on high fidelity model, we want to evaluate the simulation results
     if config.simulation_config.high_fidelity_sim
@@ -188,60 +164,43 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
 
     @info "Setting up experiment configuration for experiment: $exp_name"
 
+    # Mode-specific overrides
     if mode == "debug"
-        solver_cfg = SolverConfig(
-            log_space=log_space,
-            reward_lambdas=reward_lambdas, # [1.0, 3.0, 0.5, 0.01, 0.0], # [treatment, regulatory, biomass, health, sea lice]
-            sarsop_max_time=5.0,
-            VI_max_iterations=100,
-            QMDP_max_iterations=100,
-            discount_factor = 0.95,
-            discretization_step = 0.1,
-            location = location, # "north", "west", or "south"
-            heuristic_belief_threshold_mechanical=0.45,
-            heuristic_belief_threshold_chemical=0.4,
-            heuristic_belief_threshold_thermal=0.475,
-            full_observability_solver = false, # Toggles whether we have full observability in the observation function or not (false). Pairs with high_fidelity_sim = false.
-        )
-        sim_cfg = SimulationConfig(
-            num_episodes=100,
-            steps_per_episode=52,
-            ekf_filter=ekf_filter,
-            high_fidelity_sim = true, #false,
-            sim_reward_lambdas = sim_reward_lambdas,  # [treatment, regulatory, biomass, health, sea_lice]
-        )
-        config = ExperimentConfig(
-            solver_config=solver_cfg,
-            simulation_config=sim_cfg,
-            experiment_name=exp_name,
-        )
+        sarsop_time, vi_iters, qmdp_iters, disc_step = 5.0, 100, 100, 0.1
+        n_episodes, n_steps = 100, 52
     elseif mode == "paper"
-        solver_cfg = SolverConfig(
-            log_space=log_space,
-            reward_lambdas=reward_lambdas,
-            sarsop_max_time=800.0,
-            VI_max_iterations=800,
-            QMDP_max_iterations=800,
-            discount_factor = 0.95,
-            discretization_step = 0.01,
-            location = location, # "north", "west", or "south"
-            heuristic_belief_threshold_mechanical=0.45,
-            heuristic_belief_threshold_chemical=0.4,
-            heuristic_belief_threshold_thermal=0.475,
-            full_observability_solver = false, # Toggles whether we have full observability in the observation function or not (false). Pairs with high_fidelity_sim = false.
-        )
-        sim_cfg = SimulationConfig(
-            num_episodes=1000,
-            steps_per_episode=100,
-            ekf_filter=ekf_filter,
-            sim_reward_lambdas = sim_reward_lambdas,  # [treatment, regulatory, biomass, health, sea_lice]
-        )
-        config = ExperimentConfig(
-            solver_config=solver_cfg,
-            simulation_config=sim_cfg,
-            experiment_name=exp_name,
-        )
+        sarsop_time, vi_iters, qmdp_iters, disc_step = 800.0, 800, 800, 0.01
+        n_episodes, n_steps = 1000, 100
+    else
+        error("Invalid mode: $mode. Must be 'debug' or 'paper'")
     end
+
+    solver_cfg = SolverConfig(
+        log_space=log_space,
+        reward_lambdas=reward_lambdas,
+        sarsop_max_time=sarsop_time,
+        VI_max_iterations=vi_iters,
+        QMDP_max_iterations=qmdp_iters,
+        discount_factor=0.95,
+        discretization_step=disc_step,
+        location=location,
+        heuristic_belief_threshold_mechanical=0.45,
+        heuristic_belief_threshold_chemical=0.4,
+        heuristic_belief_threshold_thermal=0.475,
+        full_observability_solver=false,
+    )
+    sim_cfg = SimulationConfig(
+        num_episodes=n_episodes,
+        steps_per_episode=n_steps,
+        ekf_filter=ekf_filter,
+        high_fidelity_sim=true,
+        sim_reward_lambdas=sim_reward_lambdas,
+    )
+    config = ExperimentConfig(
+        solver_config=solver_cfg,
+        simulation_config=sim_cfg,
+        experiment_name=exp_name,
+    )
         
     heuristic_config = HeuristicConfig(
         raw_space_threshold=config.solver_config.heuristic_threshold,
@@ -303,18 +262,17 @@ if abspath(PROGRAM_FILE) == @__FILE__
         end
     end
 
-    # main(log_space=log_space_flag, experiment_name=experiment_name_flag, mode=mode_flag, location=location_flag)
-    run_experiments(mode_flag, location_flag)
+    main(log_space=log_space_flag, experiment_name=experiment_name_flag, mode=mode_flag, location=location_flag)
 end
 
 # -------------------------
 # Export main functions for use in notebooks/scripts
 # -------------------------
 # Main workflow functions
-export main, run_experiments, setup_experiment_configs, define_algorithms
+export main, setup_experiment_configs, define_algorithms
 
 # Policy generation functions
-export generate_mdp_pomdp_policies, create_pomdp_mdp, generate_policy
+export solve_policies, create_pomdp_mdp, generate_policy
 
 # Simulation functions
 export simulate_policy, simulate_all_policies, create_sim_pomdp, initialize_belief

@@ -38,12 +38,6 @@ end
 # ----------------------------
 function evaluate_simulation_results(config, algorithm, histories)
 
-    # Create directory for simulation histories
-    histories_dir = joinpath(config.simulations_dir, "$(algorithm.solver_name)")
-    histories_filename = "$(algorithm.solver_name)_histories"
-    
-    @load joinpath(histories_dir, "$(histories_filename).jld2") histories
-
     avg_results = DataFrame(
         lambda=Float64[],
         avg_treatment_cost=Float64[],

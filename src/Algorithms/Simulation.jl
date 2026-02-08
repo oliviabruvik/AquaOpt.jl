@@ -58,6 +58,12 @@ function create_sim_pomdp(config, λ)
         )
     else
         # Use the same POMDP type that policies were trained on
+        sim_cfg = config.simulation_config
+        adult_mean = max(sim_cfg.adult_mean, 1e-6)
+        motile_ratio = sim_cfg.motile_mean / adult_mean
+        sessile_ratio = sim_cfg.sessile_mean / adult_mean
+        base_temperature = get_location_params(config.solver_config.location).T_mean
+
         if config.solver_config.log_space
             return SeaLiceLogPOMDP(
                 lambda=λ,
@@ -166,6 +172,7 @@ end
 # Simulate one policy in parallel
 # ----------------------------
 function run_all_episodes(policy, mdp, pomdp, config, algorithm)
+    rng = MersenneTwister(1)
 
     # Defining parameters for parallel simulation
     starting_seed = 1
@@ -196,7 +203,7 @@ function run_all_episodes(policy, mdp, pomdp, config, algorithm)
             updater,             # Custom updater
             initial_belief,      # Initial belief
             initial_state;       # Initial state
-            rng=MersenneTwister(seed),
+            rng=Random.seed!(copy(rng), seed),
             max_steps=config.simulation_config.steps_per_episode,
             metadata=Dict(:policy => algorithm.solver_name, :lambda => pomdp.lambda, :seed => seed, :episode_number => sim_number)
         ))
@@ -311,6 +318,7 @@ end
 # Simulate all policies in parallel
 # ----------------------------
 function simulate_all_policies_on_mdp(algorithms, config)
+    rng = MersenneTwister(1)
 
     # Defining parameters for parallel simulation
     starting_seed = 1
@@ -340,7 +348,7 @@ function simulate_all_policies_on_mdp(algorithms, config)
                     mdp,                      # MDP
                     policy,                 # Policy
                     initial_state;                  # Initial state
-                    rng=MersenneTwister(seed),
+                    rng=Random.seed!(copy(rng), seed),
                     max_steps=config.simulation_config.steps_per_episode,
                     metadata=Dict(:policy => algo.solver_name, :lambda => λ, :seed => seed, :episode_number => sim_number)
                 ))
@@ -374,6 +382,7 @@ end
 # Simulate VI policy on a high fidelity MDP with full observability
 # ----------------------------
 function simulate_vi_policy_on_hifi_mdp(algorithms, config)
+    rng = MersenneTwister(1)
 
     # Defining parameters for parallel simulation
     starting_seed = 1
@@ -413,7 +422,7 @@ function simulate_vi_policy_on_hifi_mdp(algorithms, config)
                         sim_mdp,                      # MDP
                         adaptor_policy,                 # Policy
                         initial_state;                  # Initial state
-                        rng=MersenneTwister(seed),
+                        rng=Random.seed!(copy(rng), seed),
                         max_steps=config.simulation_config.steps_per_episode,
                         metadata=Dict(:policy => algo.solver_name, :lambda => λ, :seed => seed, :episode_number => sim_number)
                     ))

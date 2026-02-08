@@ -14,10 +14,6 @@ using Plots
 # ----------------------------
 function create_pomdp_mdp(λ, config)
 
-    # Create directory for POMDP and MDP
-    pomdp_mdp_dir = joinpath(config.experiment_dir, "pomdp_mdp")
-    mkpath(pomdp_mdp_dir)
-
     sim_cfg = config.simulation_config
     adult_mean = max(sim_cfg.adult_mean, 1e-6)
     motile_ratio = sim_cfg.motile_mean / adult_mean
@@ -59,46 +55,36 @@ function create_pomdp_mdp(λ, config)
     end
 
     mdp = UnderlyingMDP(pomdp)
-
-    # Save POMDP and MDP to file
-    pomdp_mdp_filename = "pomdp_mdp_$(λ)_lambda"
-    pomdp_mdp_file_path = joinpath(pomdp_mdp_dir, "$(pomdp_mdp_filename).jld2")
-    @save pomdp_mdp_file_path pomdp mdp
-    # @info "Saved POMDP and MDP to file $(pomdp_mdp_file_path)"
-
-    # Save POMDP as POMDPX file for NUS SARSOP
-    pomdpx_file_path = joinpath(pomdp_mdp_dir, "pomdp.pomdpx")
-    pomdpx = POMDPXFile(pomdpx_file_path)
-    # POMDPXFiles.write(pomdp, pomdpx)
-    # @info "Saved POMDP as POMDPX file $(pomdpx_file_path)"
-
     return pomdp, mdp
 end
 
 # ----------------------------
 # Generate MDP and POMDP policies
 # ----------------------------
-function generate_mdp_pomdp_policies(algorithm, config)
+function solve_policies(algorithms, config, pomdp, mdp)
 
-    policies_dir = joinpath(config.policies_dir, "$(algorithm.solver_name)")
-    mkpath(policies_dir)
-
-    # Generate policies for each lambda
-    for λ in config.lambda_values
-
-        # Generate POMDP and MDP
-        pomdp, mdp = create_pomdp_mdp(λ, config)
+    all_policies = Dict{String, Dict{Float64, NamedTuple}}()
+    λ = config.lambda_values[1]
+        
+    for algo in algorithms
 
         # Generate policy
-        policy = generate_policy(algorithm, pomdp, mdp)
+        policy = generate_policy(algo, pomdp, mdp)
 
-        # Save policy, pomdp, and mdp to file
-        policy_pomdp_mdp_filename = "policy_pomdp_mdp_$(λ)_lambda"
-        @save joinpath(policies_dir, "$(policy_pomdp_mdp_filename).jld2") policy pomdp mdp
-        #@info "Saved policy, pomdp, and mdp to file $(joinpath(policies_dir, "$(policy_pomdp_mdp_filename).jld2"))"
-
-        return policy, pomdp, mdp
+        # Store in-memory
+        if !haskey(all_policies, algo.solver_name)
+            all_policies[algo.solver_name] = Dict{Float64, NamedTuple}()
+        end
+        all_policies[algo.solver_name][λ] = (policy=policy, pomdp=pomdp, mdp=mdp)
     end
+
+    # Save all_policies, pomdp, and mdp to file
+    policies_dir = joinpath(config.policies_dir)
+    mkpath(policies_dir)
+    policies_pomdp_mdp_filename = "policies_pomdp_mdp_$(λ)_lambda"
+    @save joinpath(policies_dir, "$(policies_pomdp_mdp_filename).jld2") all_policies pomdp mdp
+
+    return all_policies
 end
 
 # ----------------------------
@@ -128,6 +114,10 @@ function generate_policy(algorithm, pomdp, mdp)
 
     # SARSOP and QMDP policies
     else
+        if algorithm.solver isa SARSOP.SARSOPSolver
+            mkpath(dirname(algorithm.solver.policy_filename))
+            mkpath(dirname(algorithm.solver.pomdp_filename))
+        end
         return solve(algorithm.solver, pomdp)
     end
 end
