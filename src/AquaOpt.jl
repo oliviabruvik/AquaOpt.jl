@@ -110,10 +110,7 @@ function main(;log_space=true, experiment_name="exp", mode="debug", location="so
     algorithms = define_algorithms(config)
 
     @info "Solving policies"
-    # Generate POMDP and MDP once per lambda (shared across algorithms)
-    λ = config.lambda_values[1]
-    pomdp, mdp = create_pomdp_mdp(λ, config)
-    all_policies = solve_policies(algorithms, config, pomdp, mdp)
+    all_policies = solve_policies(algorithms, config)
 
     @info "Simulating policies"
     parallel_data = simulate_all_policies(algorithms, config, all_policies)

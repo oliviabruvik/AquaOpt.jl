@@ -230,7 +230,7 @@ end
 # ----------------------------
 # Simulate all policies in parallel
 # ----------------------------
-function simulate_all_policies(algorithms, config)
+function simulate_all_policies(algorithms, config, all_policies)
     rng = MersenneTwister(1)
 
     # Defining parameters for parallel simulation
@@ -239,58 +239,50 @@ function simulate_all_policies(algorithms, config)
     # Create the list of Sim objects
     sim_list = []
 
-    # Simulate policy
-    for λ in config.lambda_values
+    λ = config.lambda_values[1]
 
-        # Create simulator POMDP
-        sim_pomdp = create_sim_pomdp(config, λ)
-        @info "Created simulator POMDP with reward lambdas: $(sim_pomdp.reward_lambdas)"
+    # Create simulator POMDP
+    sim_pomdp = create_sim_pomdp(config, λ)
+    @info "Created simulator POMDP with reward lambdas: $(sim_pomdp.reward_lambdas)"
 
-        # Create simulator
-        hr = HistoryRecorder(max_steps=config.simulation_config.steps_per_episode)
+    # Create updater
+    if config.simulation_config.high_fidelity_sim
+        updater = build_kf(sim_pomdp, ekf_filter=config.simulation_config.ekf_filter)
+    else
+        updater = DiscreteUpdater(sim_pomdp)
+    end
+
+    for algo in algorithms
+        (; policy, pomdp) = all_policies[algo.solver_name][λ]
+
+        # Create adaptor policy
         if config.simulation_config.high_fidelity_sim
-            updater = build_kf(sim_pomdp, ekf_filter=config.simulation_config.ekf_filter)
+            adaptor_policy = AdaptorPolicy(policy, pomdp, config.solver_config.location, config.solver_config.reproduction_rate)
         else
-            updater = DiscreteUpdater(sim_pomdp)
+            adaptor_policy = LOFIAdaptorPolicy(policy, pomdp)
         end
 
-        # Load policy, pomdp, and mdp
-        for algo in algorithms
-            policy_pomdp_mdp_filename = "policy_pomdp_mdp_$(λ)_lambda"
-            policy_pomdp_mdp_filepath = joinpath(config.policies_dir, "$(algo.solver_name)", "$(policy_pomdp_mdp_filename).jld2")
-            # @info "Loading policy, pomdp, and mdp from $(policy_pomdp_mdp_filepath)"
-            @load policy_pomdp_mdp_filepath policy pomdp mdp
+        # Add Sim objects for each episode
+        for sim_number in 1:config.simulation_config.num_episodes
+            seed = starting_seed + sim_number
 
-            # Create adaptor policy
-            if config.simulation_config.high_fidelity_sim
-                adaptor_policy = AdaptorPolicy(policy, pomdp, config.solver_config.location, config.solver_config.reproduction_rate)
-            else
-                adaptor_policy = LOFIAdaptorPolicy(policy, pomdp)
-            end
+            # Get initial belief and state
+            initial_belief = initialize_belief(sim_pomdp, config)
+            initial_state = rand(initialstate(sim_pomdp))
 
-            # Add Sim objects for each episode
-            for sim_number in 1:config.simulation_config.num_episodes
-                seed = starting_seed + sim_number
-
-                # Get initial belief and state
-                initial_belief = initialize_belief(sim_pomdp, config)
-                initial_state = rand(initialstate(sim_pomdp))
-
-                # Create Sim object following POMDPs.jl documentation format with custom updater
-                push!(sim_list, Sim(
-                    sim_pomdp,                      # POMDP
-                    adaptor_policy,                 # Policy
-                    updater,                        # Custom updater
-                    initial_belief,                 # Initial belief
-                    initial_state;                  # Initial state
-                    rng=Random.seed!(copy(rng), seed),
-                    max_steps=config.simulation_config.steps_per_episode,
-                    metadata=Dict(:policy => algo.solver_name, :lambda => λ, :seed => seed, :episode_number => sim_number)
-                ))
-            end
+            # Create Sim object following POMDPs.jl documentation format with custom updater
+            push!(sim_list, Sim(
+                sim_pomdp,                      # POMDP
+                adaptor_policy,                 # Policy
+                updater,                        # Custom updater
+                initial_belief,                 # Initial belief
+                initial_state;                  # Initial state
+                rng=Random.seed!(copy(rng), seed),
+                max_steps=config.simulation_config.steps_per_episode,
+                metadata=Dict(:policy => algo.solver_name, :lambda => λ, :seed => seed, :episode_number => sim_number)
+            ))
         end
     end
-   # Main.@infiltrate
 
     # Run the simulations in parallel
     data = run_parallel(sim_list, proc_warn=false) do sim, hist

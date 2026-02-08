@@ -61,10 +61,12 @@ end
 # ----------------------------
 # Generate MDP and POMDP policies
 # ----------------------------
-function solve_policies(algorithms, config, pomdp, mdp)
+function solve_policies(algorithms, config)
+
+    λ = config.lambda_values[1]
+    pomdp, mdp = create_pomdp_mdp(λ, config)
 
     all_policies = Dict{String, Dict{Float64, NamedTuple}}()
-    λ = config.lambda_values[1]
         
     for algo in algorithms
 
