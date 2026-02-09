@@ -76,8 +76,6 @@ end
 # ----------------------------
 @with_kw struct SolverConfig
     # POMDP structure parameters (affect the policy being solved)
-    costOfTreatment::Float64 = 10.0
-    growthRate::Float64 = 0.15
     reproduction_rate::Float64 = 4.0
     discount_factor::Float64 = 0.95
     adult_sd::Float64 = 0.1

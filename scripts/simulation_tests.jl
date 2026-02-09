@@ -86,7 +86,6 @@ config = setup_experiment_configs(
     training_config.solver_config.location;
     reward_lambdas=solver_reward_lambdas,
     sim_reward_lambdas=new_sim_reward_lambdas,
-    solver_growth_rate=training_config.solver_config.growthRate,
     solver_reproduction_rate=training_config.solver_config.reproduction_rate,
     solver_regulation_limit=training_config.solver_config.regulation_limit,
 )

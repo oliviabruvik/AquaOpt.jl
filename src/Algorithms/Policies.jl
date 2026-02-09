@@ -23,7 +23,6 @@ function create_pomdp_mdp(config)
     if config.solver_config.log_space
         pomdp = SeaLiceLogPOMDP(
             reward_lambdas=config.solver_config.reward_lambdas,
-            costOfTreatment=config.solver_config.costOfTreatment,
             discount_factor=config.solver_config.discount_factor,
             discretization_step=config.solver_config.discretization_step,
             adult_sd=config.solver_config.adult_sd,
@@ -38,7 +37,6 @@ function create_pomdp_mdp(config)
     else
         pomdp = SeaLicePOMDP(
             reward_lambdas=config.solver_config.reward_lambdas,
-            costOfTreatment=config.solver_config.costOfTreatment,
             discount_factor=config.solver_config.discount_factor,
             discretization_step=config.solver_config.discretization_step,
             adult_sd=config.solver_config.adult_sd,

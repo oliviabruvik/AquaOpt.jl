@@ -299,10 +299,8 @@ function solver_model_rows(config::ExperimentConfig)
     return [
         ("Deployment region", format_text(sc.location)),
         ("Discount factor", format_number(sc.discount_factor; digits=2)),
-        ("Cost of treatment", format_number(sc.costOfTreatment; digits=2)),
         ("Regulation limit", format_number(sc.regulation_limit; digits=2)),
         ("Reproduction rate", format_number(sc.reproduction_rate; digits=2)),
-        ("Growth rate", format_number(sc.growthRate; digits=2)),
         ("State discretization step", format_number(sc.discretization_step; digits=2)),
         ("Raw-space sampling sd", format_number(sc.adult_sd; digits=2)),
         ("Solver reward weights \\(\\lambda\\)", latex_array(sc.reward_lambdas)),

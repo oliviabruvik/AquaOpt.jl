@@ -42,7 +42,6 @@ function create_sim_pomdp(config)
     if config.simulation_config.high_fidelity_sim
         return SeaLiceSimPOMDP(
             reward_lambdas=config.simulation_config.sim_reward_lambdas,
-            costOfTreatment=config.solver_config.costOfTreatment,
             reproduction_rate=config.solver_config.reproduction_rate,
             discount_factor=config.solver_config.discount_factor,
             # SimPOMDP parameters
@@ -66,7 +65,6 @@ function create_sim_pomdp(config)
         if config.solver_config.log_space
             return SeaLiceLogPOMDP(
                 reward_lambdas=config.solver_config.reward_lambdas,
-                costOfTreatment=config.solver_config.costOfTreatment,
                 discount_factor=config.solver_config.discount_factor,
                 discretization_step=config.solver_config.discretization_step,
                 adult_sd=config.solver_config.adult_sd,
@@ -81,7 +79,6 @@ function create_sim_pomdp(config)
         else
             return SeaLicePOMDP(
                 reward_lambdas=config.simulation_config.sim_reward_lambdas,
-                costOfTreatment=config.solver_config.costOfTreatment,
                 discount_factor=config.solver_config.discount_factor,
                 discretization_step=config.solver_config.discretization_step,
                 adult_sd=config.solver_config.adult_sd,
