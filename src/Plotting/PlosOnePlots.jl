@@ -1369,15 +1369,10 @@ end
 # ----------------------------
 # Shows Adult, Sessile, Motile, and Predicted sea lice levels over time with 95% CI bands
 # ----------------------------
-function plos_one_algo_sealice_levels_over_time(config, algo_name)
+function plos_one_algo_sealice_levels_over_time(data, config, algo_name)
 
-    policy_name = algo_name
-
-    # Load the results from the JLD2 file
-    @load joinpath(config.results_dir, "$(policy_name)_avg_results.jld2") avg_results
-    @load joinpath(config.simulations_dir, "$(policy_name)", "$(policy_name)_histories.jld2") histories
-
-    histories_lambda = histories
+    data_policy = filter(row -> row.policy == algo_name, data)
+    histories = collect(data_policy.history)
 
     # Calculate mean and 95% CI band for each time step for all sea lice stages
     time_steps = 1:config.simulation_config.steps_per_episode
@@ -1402,7 +1397,7 @@ function plos_one_algo_sealice_levels_over_time(config, algo_name)
         step_motile = Float64[]
         step_predicted = Float64[]
 
-        for episode_history in histories_lambda
+        for episode_history in histories
             states = collect(state_hist(episode_history))
             observations = collect(observation_hist(episode_history))
 

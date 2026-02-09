@@ -73,11 +73,11 @@ function read_in_reward_metrics(experiment_path)
 
     metric_pairs = [
         (:mean_reward, :ci_reward),
-        (:mean_mean_rewards_across_sims, :ci_mean_rewards_across_sims),
+        (:mean_sim_reward, :ci_sim_reward),
         (:mean_treatment_cost, :ci_treatment_cost),
-        (:mean_num_regulatory_penalties, :ci_num_regulatory_penalties),
-        (:mean_mean_adult_sea_lice_level, :ci_mean_adult_sea_lice_level),
-        (:mean_lost_biomass_1000kg, :ci_lost_biomass_1000kg),
+        (:mean_reg_penalties, :ci_reg_penalties),
+        (:mean_sea_lice, :ci_sea_lice),
+        (:mean_lost_biomass, :ci_lost_biomass),
         (:mean_fish_disease, :ci_fish_disease),
     ]
 
@@ -95,17 +95,17 @@ function read_in_reward_metrics(experiment_path)
 
     # lowest minimization metrics
     best_cost      = minimum(row.mean_treatment_cost.mean for row in eachrow(reward_metrics))
-    best_penalty   = minimum(row.mean_num_regulatory_penalties.mean for row in eachrow(reward_metrics))
-    best_lice      = minimum(row.mean_mean_adult_sea_lice_level.mean for row in eachrow(reward_metrics))
-    best_biomass   = minimum(row.mean_lost_biomass_1000kg.mean for row in eachrow(reward_metrics))
+    best_penalty   = minimum(row.mean_reg_penalties.mean for row in eachrow(reward_metrics))
+    best_lice      = minimum(row.mean_sea_lice.mean for row in eachrow(reward_metrics))
+    best_biomass   = minimum(row.mean_lost_biomass.mean for row in eachrow(reward_metrics))
     best_disease   = minimum(row.mean_fish_disease.mean for row in eachrow(reward_metrics))
 
     best_map = Dict(
         :mean_reward => best_reward,
         :mean_treatment_cost => best_cost,
-        :mean_num_regulatory_penalties => best_penalty,
-        :mean_mean_adult_sea_lice_level => best_lice,
-        :mean_lost_biomass_1000kg => best_biomass,
+        :mean_reg_penalties => best_penalty,
+        :mean_sea_lice => best_lice,
+        :mean_lost_biomass => best_biomass,
         :mean_fish_disease => best_disease
     )
 
@@ -173,7 +173,7 @@ md"""
 """
 
 # ╔═╡ 695ff0c4-2660-4e2c-98a0-04fb09b44de0
-plos_one_algo_sealice_levels_over_time(config, "NUS_SARSOP_Policy")
+plos_one_algo_sealice_levels_over_time(parallel_data, config, "NUS_SARSOP_Policy")
 
 # ╔═╡ e15561c6-b046-4fe0-a2e9-fc7972b40878
 md"""

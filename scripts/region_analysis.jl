@@ -53,9 +53,9 @@ const REGION_TABLE_POLICIES = [
 const REGION_TABLE_METRICS = [
     (name = :reward, header = "Reward", mean_col = :mean_reward, ci_col = :ci_reward, higher_is_better = true),
     (name = :treatment_cost, header = "Treatment Cost (MNOK)", mean_col = :mean_treatment_cost, ci_col = :ci_treatment_cost, higher_is_better = false),
-    (name = :penalties, header = "Reg.\\ Penalties", mean_col = :mean_num_regulatory_penalties, ci_col = :ci_num_regulatory_penalties, higher_is_better = false),
-    (name = :lice, header = "Mean AF Lice/Fish", mean_col = :mean_mean_adult_sea_lice_level, ci_col = :ci_mean_adult_sea_lice_level, higher_is_better = false),
-    (name = :biomass, header = "Biomass Loss (tons)", mean_col = :mean_lost_biomass_1000kg, ci_col = :ci_lost_biomass_1000kg, higher_is_better = false),
+    (name = :penalties, header = "Reg.\\ Penalties", mean_col = :mean_reg_penalties, ci_col = :ci_reg_penalties, higher_is_better = false),
+    (name = :lice, header = "Mean AF Lice/Fish", mean_col = :mean_sea_lice, ci_col = :ci_sea_lice, higher_is_better = false),
+    (name = :biomass, header = "Biomass Loss (tons)", mean_col = :mean_lost_biomass, ci_col = :ci_lost_biomass, higher_is_better = false),
     (name = :disease, header = "Fish Disease", mean_col = :mean_fish_disease, ci_col = :ci_fish_disease, higher_is_better = false),
 ]
 const REGION_TABLE_ORDER = ["North", "West", "South"]
@@ -331,9 +331,8 @@ end
 
 function compute_sarsop_stage_stats(region::RegionData)
     policy = "NUS_SARSOP_Policy"
-    histories_dir = joinpath(region.config.simulations_dir, policy, "$(policy)_histories.jld2")
-    @load histories_dir histories
-    histories_lambda = histories
+    data_policy = filter(row -> row.policy == policy, region.parallel_data)
+    histories = collect(data_policy.history)
     steps = region.config.simulation_config.steps_per_episode
     stages = Dict(
         :adult => (Float64[], Float64[], Float64[]),
@@ -348,7 +347,7 @@ function compute_sarsop_stage_stats(region::RegionData)
             :motile => Float64[],
             :predicted => Float64[],
         )
-        for episode in histories_lambda
+        for episode in histories
             states = collect(state_hist(episode))
             observations = collect(observation_hist(episode))
             if t <= length(states)
