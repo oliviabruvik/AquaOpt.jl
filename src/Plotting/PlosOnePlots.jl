@@ -1600,15 +1600,4 @@ function plos_one_treatment_distribution_comparison(parallel_data, config)
     return ax
 end
 
-function _expected_biomass_shortfall(sim_params::SeaLiceSimPOMDP, s, sp)
-    ideal_survival_rate = 1 - sim_params.nat_mort_rate
-    expected_fish = max(s.NumberOfFish * ideal_survival_rate, 0.0)
-    k0_base = sim_params.k_growth * (1.0 + sim_params.temp_sensitivity * (s.Temperature - 10.0))
-    ideal_k0 = max(k0_base, 0.0)
-    expected_weight = s.AvgFishWeight + ideal_k0 * (sim_params.w_max - s.AvgFishWeight)
-    expected_weight = clamp(expected_weight, sim_params.weight_bounds...)
-    expected_biomass = biomass_tons(expected_weight, expected_fish)
-    next_biomass = biomass_tons(sp)
-    return max(expected_biomass - next_biomass, 0.0)
-end
 
