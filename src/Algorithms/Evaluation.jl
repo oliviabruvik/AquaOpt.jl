@@ -89,7 +89,9 @@ function extract_reward_metrics(data, config)
         processed_data.mean_rewards_across_sims[i] = mean(rewards)
 
         if high_fidelity
-            processed_data.num_regulatory_penalties[i] = sum(s.Adult > config.solver_config.regulation_limit ? 1.0 : 0.0 for s in states)
+            # Regulatory penalty based on observations (sampled counts), matching real-world enforcement
+            observations = collect(h[:o])
+            processed_data.num_regulatory_penalties[i] = sum(o.Adult > config.solver_config.regulation_limit ? 1.0 : 0.0 for o in observations)
             processed_data.mean_adult_sea_lice_level[i] = mean(s.Adult for s in states)
             processed_data.fish_disease[i] = sum(get_fish_disease(a) + 100.0 * s.SeaLiceLevel for (s, a) in zip(states, actions))
 
