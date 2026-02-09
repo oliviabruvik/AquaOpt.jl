@@ -10,9 +10,9 @@ using JLD2
 using Plots
 
 # ----------------------------
-# Create POMDP and MDP for a given lambda
+# Create POMDP and MDP
 # ----------------------------
-function create_pomdp_mdp(λ, config)
+function create_pomdp_mdp(config)
 
     sim_cfg = config.simulation_config
     adult_mean = max(sim_cfg.adult_mean, 1e-6)
@@ -22,7 +22,6 @@ function create_pomdp_mdp(λ, config)
 
     if config.solver_config.log_space
         pomdp = SeaLiceLogPOMDP(
-            lambda=λ,
             reward_lambdas=config.solver_config.reward_lambdas,
             costOfTreatment=config.solver_config.costOfTreatment,
             discount_factor=config.solver_config.discount_factor,
@@ -38,7 +37,6 @@ function create_pomdp_mdp(λ, config)
         )
     else
         pomdp = SeaLicePOMDP(
-            lambda=λ,
             reward_lambdas=config.solver_config.reward_lambdas,
             costOfTreatment=config.solver_config.costOfTreatment,
             discount_factor=config.solver_config.discount_factor,
@@ -63,28 +61,19 @@ end
 # ----------------------------
 function solve_policies(algorithms, config)
 
-    λ = config.lambda_values[1]
-    pomdp, mdp = create_pomdp_mdp(λ, config)
+    pomdp, mdp = create_pomdp_mdp(config)
 
-    all_policies = Dict{String, Dict{Float64, NamedTuple}}()
-        
+    all_policies = Dict{String, NamedTuple}()
+
     for algo in algorithms
-
-        # Generate policy
         policy = generate_policy(algo, pomdp, mdp)
-
-        # Store in-memory
-        if !haskey(all_policies, algo.solver_name)
-            all_policies[algo.solver_name] = Dict{Float64, NamedTuple}()
-        end
-        all_policies[algo.solver_name][λ] = (policy=policy, pomdp=pomdp, mdp=mdp)
+        all_policies[algo.solver_name] = (policy=policy, pomdp=pomdp, mdp=mdp)
     end
 
     # Save all_policies, pomdp, and mdp to file
     policies_dir = joinpath(config.policies_dir)
     mkpath(policies_dir)
-    policies_pomdp_mdp_filename = "policies_pomdp_mdp_$(λ)_lambda"
-    @save joinpath(policies_dir, "$(policies_pomdp_mdp_filename).jld2") all_policies pomdp mdp
+    @save joinpath(policies_dir, "policies_pomdp_mdp.jld2") all_policies pomdp mdp
 
     return all_policies
 end

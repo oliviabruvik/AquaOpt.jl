@@ -18,7 +18,7 @@ Configuration:
 Outputs:
     - region_sealice_levels_over_time.pdf: Sea lice comparison across regions
     - region_treatment_cost_over_time.pdf/.tex: Treatment cost comparison
-    - region_sarsop_sealice_stages_lambda_0.6.pdf: SARSOP stage breakdown
+    - region_sarsop_sealice_stages.pdf: SARSOP stage breakdown
 =#
 
 using AquaOpt
@@ -312,24 +312,23 @@ function load_or_compute_region_stats(region::RegionData)
     return cache_data, dirty, sealice_stats, treatment_stats
 end
 
-function load_or_compute_sarsop_stats(region::RegionData, lambda_value::Float64, cache_data::Dict{Symbol, Any})
-    sarsop_cache = get!(cache_data, :sarsop_stats, Dict{Float64, Any}())
-    if haskey(sarsop_cache, lambda_value)
-        @info "Loaded cached SARSOP stats" region = region.name lambda = lambda_value
-        return sarsop_cache[lambda_value], false
+function load_or_compute_sarsop_stats(region::RegionData, cache_data::Dict{Symbol, Any})
+    stats = get(cache_data, :sarsop_stats, nothing)
+    if stats !== nothing
+        @info "Loaded cached SARSOP stats" region = region.name
+        return stats, false
     end
-    @info "Computing SARSOP stats" region = region.name lambda = lambda_value
-    stats = compute_sarsop_stage_stats(region, lambda_value)
-    sarsop_cache[lambda_value] = stats
-    cache_data[:sarsop_stats] = sarsop_cache
+    @info "Computing SARSOP stats" region = region.name
+    stats = compute_sarsop_stage_stats(region)
+    cache_data[:sarsop_stats] = stats
     return stats, true
 end
 
-function compute_sarsop_stage_stats(region::RegionData, lambda_value::Float64)
+function compute_sarsop_stage_stats(region::RegionData)
     policy = "NUS_SARSOP_Policy"
     histories_dir = joinpath(region.config.simulations_dir, policy, "$(policy)_histories.jld2")
     @load histories_dir histories
-    histories_lambda = histories[lambda_value]
+    histories_lambda = histories
     steps = region.config.simulation_config.steps_per_episode
     stages = Dict(
         :adult => (Float64[], Float64[], Float64[]),
@@ -376,8 +375,8 @@ function compute_sarsop_stage_stats(region::RegionData, lambda_value::Float64)
     return stages
 end
 
-function load_reward_metrics(region::RegionData, lambda_value::Float64)
-    csv_path = joinpath(region.config.results_dir, "reward_metrics_lambda_$(lambda_value).csv")
+function load_reward_metrics(region::RegionData)
+    csv_path = joinpath(region.config.results_dir, "reward_metrics.csv")
     isfile(csv_path) || error("Could not find reward metrics CSV for $(region.name) at $csv_path")
     df = CSV.read(csv_path, DataFrame)
     rename!(df, Symbol.(names(df)))
@@ -423,8 +422,8 @@ function format_metric_entry(row::DataFrameRow, metric; highlight::Bool)
     return highlight ? "\$\\mathBF{$text}\$" : "\$$text\$"
 end
 
-function region_table_block(region::RegionData, lambda_value::Float64)
-    metrics_df = load_reward_metrics(region, lambda_value)
+function region_table_block(region::RegionData)
+    metrics_df = load_reward_metrics(region)
     policy_rows = build_policy_row_map(metrics_df)
     best_sets = compute_best_policy_sets(policy_rows)
     available_policies = [p for p in REGION_TABLE_POLICIES if haskey(policy_rows, p.csv_name)]
@@ -449,14 +448,13 @@ function region_table_block(region::RegionData, lambda_value::Float64)
     return lines
 end
 
-function generate_region_table(regions::Vector{RegionData}, out_dir::String; lambda_value::Float64 = 0.6)
-    lambda_str = replace(string(lambda_value), "." => "_")
-    output_path = joinpath(out_dir, "region_policy_comparison_lambda_$(lambda_str).tex")
+function generate_region_table(regions::Vector{RegionData}, out_dir::String)
+    output_path = joinpath(out_dir, "region_policy_comparison.tex")
     lines = String[
         "\\begin{table}[htbp!]",
         "\\centering",
         "\\begin{adjustwidth}{-2.25in}{0in}",
-        "\\caption{Comparison of Policies Across North, West, and South of Norway (common reward--lambda = \$(0.46,0.12,0.12,0.18,0.12)\$)}",
+        "\\caption{Comparison of Policies Across North, West, and South of Norway (common reward weights = \$(0.46,0.12,0.12,0.18,0.12)\$)}",
         "\\label{tab:norway-methods-comparable}",
         "\\begin{threeparttable}",
         "  \\begin{adjustbox}{max width=\\linewidth}",
@@ -481,7 +479,7 @@ function generate_region_table(regions::Vector{RegionData}, out_dir::String; lam
         push!(ordered_regions, region)
     end
 
-    region_sections = [(region, region_table_block(region, lambda_value)) for region in ordered_regions]
+    region_sections = [(region, region_table_block(region)) for region in ordered_regions]
     region_sections = [(region, rows) for (region, rows) in region_sections if !isempty(rows)]
     for (idx, (_, rows)) in enumerate(region_sections)
         append!(lines, rows)
@@ -720,10 +718,9 @@ function main()
         treatment_stats[idx] = treatment
     end
 
-    lambda_value = 0.6
     sarsop_stats = Vector{Any}(undef, length(regions))
     for (idx, region) in enumerate(regions)
-        stats, dirty = load_or_compute_sarsop_stats(region, lambda_value, cache_data[idx])
+        stats, dirty = load_or_compute_sarsop_stats(region, cache_data[idx])
         sarsop_stats[idx] = stats
         cache_dirty[idx] = cache_dirty[idx] || dirty
     end
@@ -755,8 +752,8 @@ function main()
     mkpath(out_dir)
     save_output(build_group_plot(axes_sealice), joinpath(out_dir, "region_sealice_levels_over_time.pdf"))
     save_output(build_group_plot(axes_cost; vertical_sep="40pt"), joinpath(out_dir, "region_treatment_cost_over_time.pdf"), save_tex=true)
-    save_output(build_group_plot(axes_sarsop), joinpath(out_dir, "region_sarsop_sealice_stages_lambda_0.6.pdf"))
-    generate_region_table(regions, out_dir; lambda_value=lambda_value)
+    save_output(build_group_plot(axes_sarsop), joinpath(out_dir, "region_sarsop_sealice_stages.pdf"))
+    generate_region_table(regions, out_dir)
 
     println("Region plots saved under $(abspath(out_dir)).")
 end

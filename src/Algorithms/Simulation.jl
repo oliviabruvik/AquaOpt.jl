@@ -36,12 +36,11 @@ end
 # ----------------------------
 # Create Sim POMDP
 # ----------------------------
-function create_sim_pomdp(config, λ)
+function create_sim_pomdp(config)
     # Simulate policies on a POMDP with a larger state space
     # for a realistic evaluation of performance.
     if config.simulation_config.high_fidelity_sim
         return SeaLiceSimPOMDP(
-            lambda=λ,
             reward_lambdas=config.simulation_config.sim_reward_lambdas,
             costOfTreatment=config.solver_config.costOfTreatment,
             reproduction_rate=config.solver_config.reproduction_rate,
@@ -66,7 +65,6 @@ function create_sim_pomdp(config, λ)
 
         if config.solver_config.log_space
             return SeaLiceLogPOMDP(
-                lambda=λ,
                 reward_lambdas=config.solver_config.reward_lambdas,
                 costOfTreatment=config.solver_config.costOfTreatment,
                 discount_factor=config.solver_config.discount_factor,
@@ -82,7 +80,6 @@ function create_sim_pomdp(config, λ)
             )
         else
             return SeaLicePOMDP(
-                lambda=λ,
                 reward_lambdas=config.simulation_config.sim_reward_lambdas,
                 costOfTreatment=config.solver_config.costOfTreatment,
                 discount_factor=config.solver_config.discount_factor,
@@ -105,34 +102,27 @@ function simulate_policy(algorithm, config)
     histories_dir = joinpath(config.simulations_dir, "$(algorithm.solver_name)")
     mkpath(histories_dir)
 
-    # Create directory for policies
-    policies_dir = joinpath(config.policies_dir, "$(algorithm.solver_name)")
-    mkpath(policies_dir)
+    # Load policy, pomdp, and mdp
+    policy_path = joinpath(config.policies_dir, "policies_pomdp_mdp.jld2")
+    @load policy_path all_policies
+    policy_bundle = all_policies[algorithm.solver_name]
+    policy = policy_bundle.policy
+    pomdp = policy_bundle.pomdp
+    mdp = policy_bundle.mdp
 
-    histories = Dict{Float64, Any}()
+    # Create adaptor policy
+    adaptor_policy = AdaptorPolicy(policy, pomdp, config.solver_config.location, config.solver_config.reproduction_rate)
 
     # Simulate policy
-    for λ in config.lambda_values
+    histories = run_simulation(adaptor_policy, mdp, pomdp, config, algorithm)
 
-        # Load policy, pomdp, and mdp
-        policy_pomdp_mdp_filename = "policy_pomdp_mdp_$(λ)_lambda"
-        @load joinpath(policies_dir, "$(policy_pomdp_mdp_filename).jld2") policy pomdp mdp
-
-        # Create adaptor policy
-        adaptor_policy = AdaptorPolicy(policy, pomdp, config.solver_config.location, config.solver_config.reproduction_rate)
-
-        # Simulate policy
-        histories[λ] = run_simulation(adaptor_policy, mdp, pomdp, config, algorithm)
-
-        # Run all episodes in parallel
-        data = run_all_episodes(adaptor_policy, mdp, pomdp, config, algorithm)
-
-    end
+    # Run all episodes in parallel
+    data = run_all_episodes(adaptor_policy, mdp, pomdp, config, algorithm)
 
     # Save results
     histories_filename = "$(algorithm.solver_name)_histories"
     @save joinpath(histories_dir, "$(histories_filename).jld2") histories
-    
+
     return histories
 end
 
@@ -146,10 +136,9 @@ function run_simulation(policy, mdp, pomdp, config, algorithm)
     histories = []
 
     # Create simulator POMDP
-    sim_pomdp = create_sim_pomdp(config, pomdp.lambda)
+    sim_pomdp = create_sim_pomdp(config)
 
     # Create simulator
-    # sim = RolloutSimulator(max_steps=config.simulation_config.steps_per_episode)
     hr = HistoryRecorder(max_steps=config.simulation_config.steps_per_episode)
     updater = build_kf(sim_pomdp, ekf_filter=config.simulation_config.ekf_filter)
 
@@ -178,10 +167,9 @@ function run_all_episodes(policy, mdp, pomdp, config, algorithm)
     starting_seed = 1
 
     # Create simulator POMDP
-    sim_pomdp = create_sim_pomdp(config, pomdp.lambda)
+    sim_pomdp = create_sim_pomdp(config)
 
     # Create simulator
-    # sim = RolloutSimulator(max_steps=config.simulation_config.steps_per_episode)
     hr = HistoryRecorder(max_steps=config.simulation_config.steps_per_episode)
     updater = build_kf(sim_pomdp, ekf_filter=config.simulation_config.ekf_filter)
 
@@ -205,7 +193,7 @@ function run_all_episodes(policy, mdp, pomdp, config, algorithm)
             initial_state;       # Initial state
             rng=Random.seed!(copy(rng), seed),
             max_steps=config.simulation_config.steps_per_episode,
-            metadata=Dict(:policy => algorithm.solver_name, :lambda => pomdp.lambda, :seed => seed, :episode_number => sim_number)
+            metadata=Dict(:policy => algorithm.solver_name, :seed => seed, :episode_number => sim_number)
         ))
     end
 
@@ -214,16 +202,11 @@ function run_all_episodes(policy, mdp, pomdp, config, algorithm)
         return (
             reward = discounted_reward(hist),
             n_steps = n_steps(hist),
-            history = hist,  # Store the full history
+            history = hist,
             policy = sim.metadata[:policy],
-            lambda = sim.metadata[:lambda],
             seed = sim.metadata[:seed]
         )
     end
-
-    # Calculate the mean and confidence interval for each policy
-    grouped_df = groupby(data, :policy)
-    result = combine(grouped_df, :reward => mean_and_ci => AsTable)
 
     return data
 end
@@ -239,10 +222,8 @@ function simulate_all_policies(algorithms, config, all_policies)
     # Create the list of Sim objects
     sim_list = []
 
-    λ = config.lambda_values[1]
-
     # Create simulator POMDP
-    sim_pomdp = create_sim_pomdp(config, λ)
+    sim_pomdp = create_sim_pomdp(config)
     @info "Created simulator POMDP with reward lambdas: $(sim_pomdp.reward_lambdas)"
 
     # Create updater
@@ -253,7 +234,7 @@ function simulate_all_policies(algorithms, config, all_policies)
     end
 
     for algo in algorithms
-        (; policy, pomdp) = all_policies[algo.solver_name][λ]
+        (; policy, pomdp) = all_policies[algo.solver_name]
 
         # Create adaptor policy
         if config.simulation_config.high_fidelity_sim
@@ -279,7 +260,7 @@ function simulate_all_policies(algorithms, config, all_policies)
                 initial_state;                  # Initial state
                 rng=Random.seed!(copy(rng), seed),
                 max_steps=config.simulation_config.steps_per_episode,
-                metadata=Dict(:policy => algo.solver_name, :lambda => λ, :seed => seed, :episode_number => sim_number)
+                metadata=Dict(:policy => algo.solver_name, :seed => seed, :episode_number => sim_number)
             ))
         end
     end
@@ -289,9 +270,8 @@ function simulate_all_policies(algorithms, config, all_policies)
         return (
             reward = discounted_reward(hist),
             n_steps = n_steps(hist),
-            history = hist,  # Store the full history
+            history = hist,
             policy = sim.metadata[:policy],
-            lambda = sim.metadata[:lambda],
             seed = sim.metadata[:seed]
         )
     end
@@ -318,33 +298,29 @@ function simulate_all_policies_on_mdp(algorithms, config)
     # Create the list of Sim objects
     sim_list = []
 
-    # Simulate policy
-    for λ in config.lambda_values
+    for algo in algorithms
+        policy_path = joinpath(config.policies_dir, "policies_pomdp_mdp.jld2")
+        @load policy_path all_policies
+        policy_bundle = all_policies[algo.solver_name]
+        policy = policy_bundle.policy
+        pomdp = policy_bundle.pomdp
+        mdp = policy_bundle.mdp
 
-        # Load policy, pomdp, and mdp
-        for algo in algorithms
-            policy_pomdp_mdp_filename = "policy_pomdp_mdp_$(λ)_lambda"
-            @load joinpath(config.policies_dir, "$(algo.solver_name)", "$(policy_pomdp_mdp_filename).jld2") policy pomdp mdp
+        # Add Sim objects for each episode
+        for sim_number in 1:config.simulation_config.num_episodes
+            seed = starting_seed + sim_number
 
-            # Create simulator
-            hr = HistoryRecorder(max_steps=config.simulation_config.steps_per_episode)
+            # Get initial belief and state
+            initial_state = rand(initialstate(mdp))
 
-            # Add Sim objects for each episode
-            for sim_number in 1:config.simulation_config.num_episodes
-                seed = starting_seed + sim_number
-
-                # Get initial belief and state
-                initial_state = rand(initialstate(mdp))
-
-                push!(sim_list, Sim(
-                    mdp,                      # MDP
-                    policy,                 # Policy
-                    initial_state;                  # Initial state
-                    rng=Random.seed!(copy(rng), seed),
-                    max_steps=config.simulation_config.steps_per_episode,
-                    metadata=Dict(:policy => algo.solver_name, :lambda => λ, :seed => seed, :episode_number => sim_number)
-                ))
-            end
+            push!(sim_list, Sim(
+                mdp,                      # MDP
+                policy,                 # Policy
+                initial_state;                  # Initial state
+                rng=Random.seed!(copy(rng), seed),
+                max_steps=config.simulation_config.steps_per_episode,
+                metadata=Dict(:policy => algo.solver_name, :seed => seed, :episode_number => sim_number)
+            ))
         end
     end
 
@@ -353,9 +329,8 @@ function simulate_all_policies_on_mdp(algorithms, config)
         return (
             reward = discounted_reward(hist),
             n_steps = n_steps(hist),
-            history = hist,  # Store the full history
+            history = hist,
             policy = sim.metadata[:policy],
-            lambda = sim.metadata[:lambda],
             seed = sim.metadata[:seed]
         )
     end
@@ -382,43 +357,39 @@ function simulate_vi_policy_on_hifi_mdp(algorithms, config)
     # Create the list of Sim objects
     sim_list = []
 
-    # Simulate policy
-    for λ in config.lambda_values
+    for algo in algorithms
 
-        # Load policy, pomdp, and mdp
-        for algo in algorithms
+        # Only test VI policy
+        if algo.solver_name == "VI_Policy"
+            policy_path = joinpath(config.policies_dir, "policies_pomdp_mdp.jld2")
+            @load policy_path all_policies
+            policy_bundle = all_policies[algo.solver_name]
+            policy = policy_bundle.policy
+            pomdp = policy_bundle.pomdp
+            mdp = policy_bundle.mdp
 
-            # Only test VI policy
-            if algo.solver_name == "VI_Policy"
-                policy_pomdp_mdp_filename = "policy_pomdp_mdp_$(λ)_lambda"
-                @load joinpath(config.policies_dir, "$(algo.solver_name)", "$(policy_pomdp_mdp_filename).jld2") policy pomdp mdp
+            # Create simulator POMDP
+            sim_pomdp = create_sim_pomdp(config)
+            sim_mdp = UnderlyingMDP(sim_pomdp)
 
-                # Create simulator
-                hr = HistoryRecorder(max_steps=config.simulation_config.steps_per_episode)
+            # Create adaptor policy
+            adaptor_policy = AdaptorPolicy(policy, pomdp, config.solver_config.location, config.solver_config.reproduction_rate)
 
-                # Create simulator POMDP
-                sim_pomdp = create_sim_pomdp(config, λ)
-                sim_mdp = UnderlyingMDP(sim_pomdp)
+            # Add Sim objects for each episode
+            for sim_number in 1:config.simulation_config.num_episodes
+                seed = starting_seed + sim_number
 
-                # Create adaptor policy
-                adaptor_policy = AdaptorPolicy(policy, pomdp, config.solver_config.location, config.solver_config.reproduction_rate)
+                # Get initial belief and state
+                initial_state = rand(initialstate(sim_mdp))
 
-                # Add Sim objects for each episode
-                for sim_number in 1:config.simulation_config.num_episodes
-                    seed = starting_seed + sim_number
-
-                    # Get initial belief and state
-                    initial_state = rand(initialstate(sim_mdp))
-
-                    push!(sim_list, Sim(
-                        sim_mdp,                      # MDP
-                        adaptor_policy,                 # Policy
-                        initial_state;                  # Initial state
-                        rng=Random.seed!(copy(rng), seed),
-                        max_steps=config.simulation_config.steps_per_episode,
-                        metadata=Dict(:policy => algo.solver_name, :lambda => λ, :seed => seed, :episode_number => sim_number)
-                    ))
-                end
+                push!(sim_list, Sim(
+                    sim_mdp,                      # MDP
+                    adaptor_policy,                 # Policy
+                    initial_state;                  # Initial state
+                    rng=Random.seed!(copy(rng), seed),
+                    max_steps=config.simulation_config.steps_per_episode,
+                    metadata=Dict(:policy => algo.solver_name, :seed => seed, :episode_number => sim_number)
+                ))
             end
         end
     end
@@ -428,9 +399,8 @@ function simulate_vi_policy_on_hifi_mdp(algorithms, config)
         return (
             reward = discounted_reward(hist),
             n_steps = n_steps(hist),
-            history = hist,  # Store the full history
+            history = hist,
             policy = sim.metadata[:policy],
-            lambda = sim.metadata[:lambda],
             seed = sim.metadata[:seed]
         )
     end

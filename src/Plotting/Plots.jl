@@ -11,7 +11,7 @@ _time_plot_legend_enabled(selection, key::Symbol) = selection === nothing ? true
 function plot_plos_one_plots(parallel_data, config; policies_to_plot=nothing, time_plot_legends=nothing)
     @info "Plotting Plos One Plots"
     legend_selection = _normalize_time_plot_legends(time_plot_legends)
-    plos_one_plot_kalman_filter_belief_trajectory(parallel_data, "NUS_SARSOP_Policy", config, 0.6)
+    plos_one_plot_kalman_filter_belief_trajectory(parallel_data, "NUS_SARSOP_Policy", config)
     plos_one_sealice_levels_over_time(
         parallel_data,
         config;
@@ -54,8 +54,8 @@ function plot_plos_one_plots(parallel_data, config; policies_to_plot=nothing, ti
         policies_to_plot=policies_to_plot,
         show_legend=_time_plot_legend_enabled(legend_selection, :treatment_probability),
     )
-    plos_one_sarsop_dominant_action(parallel_data, config, 0.6)
-    plos_one_algo_sealice_levels_over_time(config, "NUS_SARSOP_Policy", 0.6)
+    plos_one_sarsop_dominant_action(parallel_data, config)
+    plos_one_algo_sealice_levels_over_time(config, "NUS_SARSOP_Policy")
     plos_one_episode_sealice_levels_over_time(
         parallel_data,
         config;
@@ -87,16 +87,16 @@ function plot_parallel_plots(parallel_data, config)
     plot_treatment_distribution_comparison_latex(parallel_data, config)
     
     # Plot SARSOP policy action heatmap
-    plot_sarsop_policy_action_heatmap(config, 0.6)
+    plot_sarsop_policy_action_heatmap(config)
     
     # Plot Heuristic policy action heatmap
-    plot_heuristic_policy_action_heatmap(config, 0.6)
+    plot_heuristic_policy_action_heatmap(config)
     
     # Plot combined policy action heatmaps side by side
-    plot_combined_policy_action_heatmaps(config, 0.6)
+    plot_combined_policy_action_heatmaps(config)
 
-    plot_beliefs_over_time(parallel_data, "NUS_SARSOP_Policy", config, 0.6)
-    plot_beliefs_over_time(parallel_data, "Heuristic_Policy", config, 0.6)
+    plot_beliefs_over_time(parallel_data, "NUS_SARSOP_Policy", config)
+    plot_beliefs_over_time(parallel_data, "Heuristic_Policy", config)
 
     # Plot combined treatment probability over time
     plot_combined_treatment_probability_over_time(parallel_data, config)

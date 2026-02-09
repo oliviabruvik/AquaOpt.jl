@@ -426,15 +426,18 @@ end
 # Policy Action Heatmap: Shows which actions SARSOP policy chooses
 # based on sea temperature and current sea lice levels
 # ----------------------------
-function plot_sarsop_policy_action_heatmap(config, λ=0.6)
+function plot_sarsop_policy_action_heatmap(config)
     
     # Load the SARSOP policy
-    policy_path = joinpath(config.policies_dir, "NUS_SARSOP_Policy", "policy_pomdp_mdp_$(λ)_lambda.jld2")
+    policy_path = joinpath(config.policies_dir, "policies_pomdp_mdp.jld2")
     if !isfile(policy_path)
         error("Policy file not found: $policy_path")
     end
     
-    @load policy_path policy pomdp mdp
+    @load policy_path all_policies
+    policy_bundle = all_policies["NUS_SARSOP_Policy"]
+    policy = policy_bundle.policy
+    pomdp = policy_bundle.pomdp
     
     # Define temperature and sea lice level ranges
     temp_range = 8.0:0.5:24.0  # Sea temperature range (°C)
@@ -562,41 +565,17 @@ end
 # Policy Action Heatmap: Shows which actions Heuristic policy chooses
 # based on sea temperature and current sea lice levels
 # ----------------------------
-function plot_heuristic_policy_action_heatmap(config, λ=0.6)
+function plot_heuristic_policy_action_heatmap(config)
     
-    # Create POMDP for the heuristic policy
-    if config.solver_config.log_space
-        pomdp = SeaLiceLogPOMDP(
-            lambda=λ,
-            reward_lambdas=config.solver_config.reward_lambdas,
-            costOfTreatment=config.solver_config.costOfTreatment,
-            growthRate=config.solver_config.growthRate,
-            discount_factor=config.solver_config.discount_factor,
-            discretization_step=config.solver_config.discretization_step,
-            adult_sd=config.solver_config.adult_sd,
-            regulation_limit=config.solver_config.regulation_limit,
-            full_observability_solver=config.solver_config.full_observability_solver,
-            location=config.solver_config.location,
-            reproduction_rate=config.solver_config.reproduction_rate,
-            motile_ratio=motile_ratio,
-            sessile_ratio=sessile_ratio,
-            base_temperature=base_temperature,
-        )
-    else
-        pomdp = SeaLicePOMDP(
-            lambda=λ,
-            reward_lambdas=config.solver_config.reward_lambdas,
-            costOfTreatment=config.solver_config.costOfTreatment,
-            growthRate=config.solver_config.growthRate,
-            discount_factor=config.solver_config.discount_factor,
-            discretization_step=config.solver_config.discretization_step,
-            adult_sd=config.solver_config.adult_sd,
-            regulation_limit=config.solver_config.regulation_limit,
-            full_observability_solver=config.solver_config.full_observability_solver,
-        )
+    policy_path = joinpath(config.policies_dir, "policies_pomdp_mdp.jld2")
+    if !isfile(policy_path)
+        error("Policy file not found: $policy_path")
     end
-    
-    policy = HeuristicPolicy(pomdp, config.solver_config)
+
+    @load policy_path all_policies
+    policy_bundle = all_policies["Heuristic_Policy"]
+    policy = policy_bundle.policy
+    pomdp = policy_bundle.pomdp
 
     # Define temperature and sea lice level ranges
     temp_range = 8.0:0.5:24.0  # Sea temperature range (°C)
@@ -724,11 +703,11 @@ end
 # Combined Policy Action Heatmap: Shows both SARSOP and Heuristic policies
 # side by side for comparison using groupplots with shared axes
 # ----------------------------
-function plot_combined_policy_action_heatmaps(config, λ=0.6)
+function plot_combined_policy_action_heatmaps(config)
     
     # Generate data for both policies
-    sarsop_data = generate_policy_action_data("SARSOP", config, λ)
-    heuristic_data = generate_policy_action_data("Heuristic", config, λ)
+    sarsop_data = generate_policy_action_data("SARSOP", config)
+    heuristic_data = generate_policy_action_data("Heuristic", config)
     
     # Create the combined plot using groupplots with shared axes
     ax = @pgf GroupPlot(Options(
@@ -795,7 +774,7 @@ end
 # ----------------------------
 # Helper function to generate policy action data
 # ----------------------------
-function generate_policy_action_data(policy_type, config, λ)
+function generate_policy_action_data(policy_type, config)
     
     # Define temperature and sea lice level ranges
     temp_range = 8.0:0.5:24.0  # Sea temperature range (°C)
@@ -811,52 +790,20 @@ function generate_policy_action_data(policy_type, config, λ)
     chemical_coords = []
     thermal_coords = []
     
-    if policy_type == "SARSOP"
-        # Load the SARSOP policy
-        policy_path = joinpath(config.policies_dir, "NUS_SARSOP_Policy", "policy_pomdp_mdp_$(λ)_lambda.jld2")
-        if !isfile(policy_path)
-            error("Policy file not found: $policy_path")
-        end
-        @load policy_path policy pomdp mdp
-    else  # Heuristic
-        # Create POMDP for the heuristic policy
-        if config.solver_config.log_space
-            pomdp = SeaLiceLogPOMDP(
-                lambda=λ,
-                reward_lambdas=config.solver_config.reward_lambdas,
-                costOfTreatment=config.solver_config.costOfTreatment,
-                growthRate=config.solver_config.growthRate,
-                discount_factor=config.solver_config.discount_factor,
-                discretization_step=config.solver_config.discretization_step,
-                adult_sd=config.solver_config.adult_sd,
-                regulation_limit=config.solver_config.regulation_limit,
-                full_observability_solver=config.solver_config.full_observability_solver,
-                location=config.solver_config.location,
-                reproduction_rate=config.solver_config.reproduction_rate,
-                motile_ratio=motile_ratio,
-                sessile_ratio=sessile_ratio,
-                base_temperature=base_temperature,
-            )
-        else
-            pomdp = SeaLicePOMDP(
-                lambda=λ,
-                reward_lambdas=config.solver_config.reward_lambdas,
-                costOfTreatment=config.solver_config.costOfTreatment,
-                growthRate=config.solver_config.growthRate,
-                discount_factor=config.solver_config.discount_factor,
-                discretization_step=config.solver_config.discretization_step,
-                adult_sd=config.solver_config.adult_sd,
-                regulation_limit=config.solver_config.regulation_limit,
-                full_observability_solver=config.solver_config.full_observability_solver,
-                location=config.solver_config.location,
-                reproduction_rate=config.solver_config.reproduction_rate,
-                motile_ratio=motile_ratio,
-                sessile_ratio=sessile_ratio,
-                base_temperature=base_temperature,
-            )
-        end
-        policy = HeuristicPolicy(pomdp, config.solver_config)
+    policy_path = joinpath(config.policies_dir, "policies_pomdp_mdp.jld2")
+    if !isfile(policy_path)
+        error("Policy file not found: $policy_path")
     end
+
+    @load policy_path all_policies
+    if policy_type == "SARSOP"
+        policy_bundle = all_policies["NUS_SARSOP_Policy"]
+    else
+        policy_bundle = all_policies["Heuristic_Policy"]
+    end
+
+    policy = policy_bundle.policy
+    pomdp = policy_bundle.pomdp
     
     for (i, sealice_level) in enumerate(sealice_range)
         for (j, temp) in enumerate(temp_range)
@@ -1055,11 +1002,10 @@ end
 # Plot 2: Time series of belief means and variances using PGFPlotsX
 # Creates side-by-side plots showing belief trajectories for Adult, Motile, and Sessile
 # ----------------------------
-function plot_beliefs_over_time(data, algo_name, config, lambda)
+function plot_beliefs_over_time(data, algo_name, config)
 
-    # Filter the data to only include the algorithm and chosen lambda
+    # Filter the data to only include the algorithm
     data = filter(row -> row.policy == algo_name, data)
-    data = filter(row -> row.lambda == lambda, data)
 
     # Extract first belief history for given solver
     history = data.history[1]
@@ -1166,8 +1112,8 @@ function plot_beliefs_over_time(data, algo_name, config, lambda)
     push!(ax, @pgf("\\addlegendentry{Observation}"))
 
     # Save the plot
-    PGFPlotsX.save("debug_plots/belief_trajectories_$(algo_name)_lambda_$(lambda)_latex.pdf", ax)
-    save_transparent_png("debug_plots/belief_trajectories_$(algo_name)_lambda_$(lambda)_latex.pdf", ax)
+    PGFPlotsX.save("debug_plots/belief_trajectories_$(algo_name)_latex.pdf", ax)
+    save_transparent_png("debug_plots/belief_trajectories_$(algo_name)_latex.pdf", ax)
     
     return ax
 end

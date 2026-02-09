@@ -130,10 +130,10 @@ The simulator’s reward tracks the same components described earlier, but bioma
 
 Evaluation is orchestrated in `src/Algorithms/Simulation.jl` and `Evaluation.jl`:
 
-1. `generate_mdp_pomdp_policies` solves each policy for every λ in `ExperimentConfig.lambda_values` and stores them under `results/experiments/<exp>/<algo>/pomdp_mdp`.
-2. `simulate_all_policies` loads those policies, wraps them for simulator compatibility, and runs `num_episodes × steps_per_episode` rollouts with shared seeds.
+1. `solve_policies` solves each policy once and writes a single `policies_pomdp_mdp.jld2` bundle under `results/experiments/<exp>/policies`.
+2. `simulate_all_policies` uses those policies, wraps them for simulator compatibility, and runs `num_episodes × steps_per_episode` rollouts with shared seeds.
 3. `extract_reward_metrics` computes treatment counts, average lice levels, biomass loss, regulatory exceedances, and fish disease tallies per episode/history.
-4. `evaluate_simulation_results` aggregates by λ and writes CSV/JLD summaries for manuscript tables.
+4. `evaluate_simulation_results` aggregates per policy and writes CSV/JLD summaries for manuscript tables.
 
 Histories and plots are written inside `results/experiments/<exp>/` so every run remains self-contained.
 
@@ -150,7 +150,7 @@ Histories and plots are written inside `results/experiments/<exp>/` so every run
 - `scripts/policy_analysis.jl`: runs `main` in “paper” mode for a chosen location.
 - `scripts/reward_analysis.jl`: sweeps reward weights to produce sensitivity plots.
 - `scripts/region_analysis.jl`: contrasts north/west/south parameterizations.
-- `scripts/aggregate_lambda_summaries.jl`: merges per-λ metrics into manuscript tables.
+- `scripts/aggregate_lambda_summaries.jl`: merges per-experiment metrics into manuscript tables.
 - `scripts/generate_methodology_tables.jl`: exports LaTeX tables describing the exact equations above (useful when drafting the Methods section).
 - `scripts/simulation_tests.jl`: quick regression checks on simulator settings.
 

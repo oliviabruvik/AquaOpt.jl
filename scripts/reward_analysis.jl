@@ -13,14 +13,13 @@ Usage:
 
 Configuration:
     - EXPERIMENT_FOLDERS: Paths to experiments to compare
-    - TARGET_LAMBDA: Lambda value to use for analysis (default: 0.6)
     - TABLE_OUTPUT_PATH: Where to save the treatment summary table
     - FIGURE_OUTPUT_PATH: Where to save the dominant action figure
 
 Outputs:
-    - Quick_Access/lambda_treatment_summary.tex: LaTeX table
-    - Quick_Access/lambda_dominant_actions.tex: LaTeX figure (GroupPlot)
-    - Quick_Access/lambda_dominant_actions.pdf: PDF figure
+    - Quick_Access/policy_treatment_summary.tex: LaTeX table
+    - Quick_Access/policy_dominant_actions.tex: LaTeX figure (GroupPlot)
+    - Quick_Access/policy_dominant_actions.pdf: PDF figure
 =#
 
 isnothing(Base.active_project()) && @warn "No active Julia project detected. Run this script with `julia --project=.` to ensure dependencies are available."
@@ -42,9 +41,8 @@ const EXPERIMENT_FOLDERS = Dict(
     "Northern Norway" => "results/experiments/2025-11-19/2025-11-19T22:18:33.024_log_space_ukf_paper_north_[0.46, 0.12, 0.12, 0.18, 0.12]"
 )
 
-const TARGET_LAMBDA = 0.6
-const TABLE_OUTPUT_PATH = "final_results/reward_outputs/lambda_treatment_summary.tex"
-const FIGURE_OUTPUT_PATH = "final_results/reward_outputs/lambda_dominant_actions.tex"
+const TABLE_OUTPUT_PATH = "final_results/reward_outputs/policy_treatment_summary.tex"
+const FIGURE_OUTPUT_PATH = "final_results/reward_outputs/policy_dominant_actions.tex"
 const LAMBDA_TABLE_OUTPUT_PATH = "final_results/reward_outputs/lambda_parameters.tex"
 
 const TREATMENT_COLUMNS = ["NoTreatment", "ChemicalTreatment", "MechanicalTreatment", "ThermalTreatment"]
@@ -122,15 +120,15 @@ function load_experiment_config(experiment_root::String)
     return adjust_config_paths!(config, experiment_root)
 end
 
-function load_treatment_data(experiment_root::String; λ::Float64=TARGET_LAMBDA)
-    csv_path = joinpath(experiment_root, "avg_results", "treatment_data_lambda_$(λ).csv")
+function load_treatment_data(experiment_root::String)
+    csv_path = joinpath(experiment_root, "avg_results", "treatment_data.csv")
     isfile(csv_path) || error("Missing treatment summary at $csv_path")
     df = CSV.read(csv_path, DataFrame)
     rename!(df, Symbol.(names(df)))
     return df
 end
 
-function compute_treatment_std(config::ExperimentConfig; λ::Float64=TARGET_LAMBDA)
+function compute_treatment_std(config::ExperimentConfig)
     data_path = joinpath(config.simulations_dir, "all_policies_simulation_data.jld2")
     if !isfile(data_path)
         @warn "Simulation data not found at $data_path; cannot compute standard deviations."
@@ -144,13 +142,7 @@ function compute_treatment_std(config::ExperimentConfig; λ::Float64=TARGET_LAMB
         return TreatmentStats()
     end
 
-    data_λ = filter(row -> row.lambda == λ, processed)
-    if isempty(data_λ)
-        @warn "No simulation episodes found for λ=$(λ); cannot compute standard deviations."
-        return TreatmentStats()
-    end
-
-    grouped = groupby(data_λ, :policy)
+    grouped = groupby(processed, :policy)
     stats = TreatmentStats()
     for grp in grouped
         policy = grp.policy[1]
@@ -254,8 +246,8 @@ function build_table(entries::Vector{ExperimentSummary})
 
     push!(lines, "\\bottomrule")
     push!(lines, "\\end{tabular}")
-    push!(lines, "\\caption{Average number of treatments per policy for each \\(\\lambda\\) combination.}")
-    push!(lines, "\\label{tab:lambda_treatment_summary}")
+    push!(lines, "\\caption{Average number of treatments per policy for each reward-weight combination.}")
+    push!(lines, "\\label{tab:policy_treatment_summary}")
     push!(lines, "\\end{table}")
     return join(lines, "\n")
 end
@@ -315,14 +307,16 @@ function save_lambda_table(entries::Dict{String, ExperimentSummary}; output_path
 end
 
 function build_dominant_action_axis(config::ExperimentConfig;
-        λ::Float64=TARGET_LAMBDA,
         include_legend::Bool=false,
         include_axis_labels::Bool=true,
         axis_width::String="5.6cm",
         axis_height::String="4.8cm")
-    policy_path = joinpath(config.policies_dir, "NUS_SARSOP_Policy", "policy_pomdp_mdp_$(λ)_lambda.jld2")
+    policy_path = joinpath(config.policies_dir, "policies_pomdp_mdp.jld2")
     isfile(policy_path) || error("SARSOP policy not found at $policy_path")
-    @load policy_path policy pomdp mdp
+    @load policy_path all_policies
+    policy_bundle = all_policies["NUS_SARSOP_Policy"]
+    policy = policy_bundle.policy
+    pomdp = policy_bundle.pomdp
 
     temp_range = 8.0:0.5:24.0
     sealice_range = 0.0:0.01:1.0
@@ -420,13 +414,12 @@ function build_dominant_action_axis(config::ExperimentConfig;
 end
 
 function save_combined_dominant_plot(entries::Vector{ExperimentSummary};
-        λ::Float64=TARGET_LAMBDA,
         output_path::String=FIGURE_OUTPUT_PATH)
     axes = Vector{Axis}()
     for (idx, entry) in enumerate(entries)
         # Put legend in the middle subplot and position it above all plots
         include_legend = (idx == 2)  # Middle subplot
-        ax = build_dominant_action_axis(entry.config; λ=λ, include_legend=include_legend, include_axis_labels=false)
+        ax = build_dominant_action_axis(entry.config; include_legend=include_legend, include_axis_labels=false)
         ax.options["title"] = entry.label
 
         # Position legend above the middle plot, centered over all three plots
@@ -466,7 +459,6 @@ function save_combined_dominant_plot(entries::Vector{ExperimentSummary};
 end
 
 function save_quad_dominant_plot(entries_dict::Dict{String, ExperimentSummary};
-        λ::Float64=TARGET_LAMBDA,
         output_path::String=replace(FIGURE_OUTPUT_PATH, ".tex" => "_quad.tex"))
 
     # Define the order: Northern Norway, Southern Norway (top row), Scotland, Chile (bottom row)
@@ -483,7 +475,7 @@ function save_quad_dominant_plot(entries_dict::Dict{String, ExperimentSummary};
 
         # Put legend above the top-left plot (NorthernNorway)
         include_legend = (idx == 1)
-        ax = build_dominant_action_axis(entry.config; λ=λ, include_legend=include_legend, include_axis_labels=false)
+        ax = build_dominant_action_axis(entry.config; include_legend=include_legend, include_axis_labels=false)
         ax.options["title"] = entry.label
 
         # Position legend above the first plot

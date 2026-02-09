@@ -559,8 +559,8 @@ function write_noise_table(rows; filename::String, caption::String, label::Strin
     return output_path
 end
 
-function load_reward_metrics(config::ExperimentConfig; λ::Float64=0.6)
-    csv_path = joinpath(config.results_dir, "reward_metrics_lambda_$(λ).csv")
+function load_reward_metrics(config::ExperimentConfig)
+    csv_path = joinpath(config.results_dir, "reward_metrics.csv")
     isfile(csv_path) || error("Missing reward metrics at $(csv_path)")
     df = CSV.read(csv_path, DataFrame)
     return df
@@ -674,7 +674,7 @@ function main()
         ["Policy", "Mean reward", "Adult lice", "Regulatory penalties", "Lost biomass (1000 kg)"],
         policy_metrics_rows(reward_df);
         filename="policy_evaluation_summary.tex",
-        caption="Policy evaluation summary at target \\(\\lambda\\).",
+        caption="Policy evaluation summary.",
         label="tab:policy_summary"))
     push!(outputs, write_treatment_table(treatment_table_rows();
         filename="treatment_parameters.tex",

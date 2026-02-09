@@ -28,20 +28,19 @@ end
 # - data: DataFrame with simulation data
 # - algo_name: String, name of the algorithm
 # - config: ExperimentConfig, configuration object
-# - lambda: Float, lambda value
+# - lambda removed
 # Outputs:
 # - Saves plots to config.figures_dir/belief_plots/algo_name/
 # - Returns nothing
 # ----------------------------
-function plot_beliefs_over_time_plotsjl(data, algo_name, config, lambda)
+function plot_beliefs_over_time_plotsjl(data, algo_name, config)
 
     # Create directory for belief plots
     output_dir = joinpath(config.figures_dir, "belief_plots", algo_name)
     mkpath(output_dir)
 
-    # Filter the data to only include the algorithm and chosen lambda
+    # Filter the data to only include the algorithm
     data = filter(row -> row.policy == algo_name, data)
-    data = filter(row -> row.lambda == lambda, data)
 
     # Extract first belief history for given solver
     history = data.history[1]
@@ -83,7 +82,7 @@ function plot_beliefs_over_time_plotsjl(data, algo_name, config, lambda)
             belief_means[:, i],
             ribbon=sqrt.(belief_variances_array[:, i]),
             label="Belief mean",
-            title="KF Belief Trajectory of $(labels[i]) Abundance (λ = $lambda)",
+            title="KF Belief Trajectory of $(labels[i]) Abundance",
             xlabel="Timestep (weeks)",
             ylabel="Abundance (average $(labels[i]) units per fish)",
             linewidth=2,
@@ -100,7 +99,7 @@ function plot_beliefs_over_time_plotsjl(data, algo_name, config, lambda)
         end
         
         push!(belief_plots, belief_plot)
-        savefig(belief_plots[i], joinpath(output_dir, "belief_means_$(labels[i])_lambda_$(lambda).png"))
+        savefig(belief_plots[i], joinpath(output_dir, "belief_means_$(labels[i]).png"))
     end
 
     # Plot 4: Temperature (not added to belief_plots)
@@ -108,7 +107,7 @@ function plot_beliefs_over_time_plotsjl(data, algo_name, config, lambda)
         belief_means[:, 4],
         ribbon=sqrt.(belief_variances_array[:, 4]),
         label="Belief mean",
-        title="KF Belief Trajectory of Temperature (λ = $lambda)",
+        title="KF Belief Trajectory of Temperature",
         xlabel="Timestep (weeks)",
         ylabel="Temperature (°C)",
         linewidth=2,
@@ -118,28 +117,27 @@ function plot_beliefs_over_time_plotsjl(data, algo_name, config, lambda)
     )
     scatter!(p_temp, 1:size(states_df,1), states_df[:, 4], label="True value", marker=:x, markersize=3, color=colors[4])
     scatter!(p_temp, 1:size(observations_df,1), observations_df[:, 4], label="Observation", marker=:circle, markersize=3, color=colors[4])
-    savefig(p_temp, joinpath(output_dir, "belief_means_Temperature_lambda_$(lambda).png"))
+    savefig(p_temp, joinpath(output_dir, "belief_means_Temperature.png"))
 
     # Arrange 3 plots side by side
     belief_plot_grid = plot(belief_plots[1:3]..., layout=(1, 3), size=(2000, 400))
-    savefig(belief_plot_grid, joinpath(output_dir, "belief_means_and_variances_split_lambda_$(lambda).png"))
+    savefig(belief_plot_grid, joinpath(output_dir, "belief_means_and_variances_split.png"))
 
     # Plot variances over time
-    variance_plot = plot(title="KF Belief Variance Trajectory (λ = $lambda)", xlabel="Timestep (weeks)", ylabel="Variance")
+    variance_plot = plot(title="KF Belief Variance Trajectory", xlabel="Timestep (weeks)", ylabel="Variance")
     for i in 1:length(labels)
         plot!(variance_plot, belief_variances_array[:, i], label="Belief $(labels[i])")
     end
-    savefig(variance_plot, joinpath(output_dir, "belief_variances_lambda_$(lambda).png"))
+    savefig(variance_plot, joinpath(output_dir, "belief_variances.png"))
 end
 
 # ----------------------------
 # Plot 6: Time-series of belief for each policy
 # ----------------------------
-function plot_policy_belief_levels(histories, title, config, lambda; show_actual_states=true)
+function plot_policy_belief_levels(histories, title, config; show_actual_states=true)
 
-    # Get values for first episode of lambda
-    histories_lambda = histories[lambda]
-    first_episode_history = histories_lambda[1]
+    # Get values for first episode
+    first_episode_history = histories[1]
 
     # Extract belief, state, and action histories from the episode
     beliefs = collect(belief_hist(first_episode_history))
@@ -204,18 +202,18 @@ function plot_policy_belief_levels(histories, title, config, lambda; show_actual
     mkpath(joinpath(config.figures_dir, "research_plots"))
     
     # Save to belief_plots for individual policy analysis
-    savefig(p, joinpath(config.figures_dir, "belief_plots/$(title)/beliefs_$(lambda)_lambda.png"))
+    savefig(p, joinpath(config.figures_dir, "belief_plots/$(title)/beliefs.png"))
     
     return p
 end
 
 # ----------------------------
-# Plot 7: Time-series of sea lice levels for each policy at specific lambda
+# Plot 7: Time-series of sea lice levels for each policy
 # ----------------------------
-function plot_policy_sealice_levels_over_time(config, lambda_value)
+function plot_policy_sealice_levels_over_time(config)
     # Initialize the plot
     p = plot(
-        title="Policy Comparison: Sea Lice Levels Over Time (λ = $lambda_value)",
+        title="Policy Comparison: Sea Lice Levels Over Time",
         xlabel="Time Step",
         ylabel="Average Sea Lice Level (Avg. Adult Female Lice per Fish)",
         legend=:bottomright,
@@ -240,8 +238,7 @@ function plot_policy_sealice_levels_over_time(config, lambda_value)
             @load joinpath(config.results_dir, "$(policy_name)_avg_results.jld2") avg_results
             @load joinpath(config.simulations_dir, "$(policy_name)", "$(policy_name)_histories.jld2") histories
             
-            # Get histories for this lambda
-            histories_lambda = histories[lambda_value]
+            histories_lambda = histories
             
             # Calculate mean and 95% CI for each time step
             time_steps = 1:config.simulation_config.steps_per_episode
@@ -302,17 +299,17 @@ function plot_policy_sealice_levels_over_time(config, lambda_value)
         end
     end
     mkpath(joinpath(config.figures_dir, "sealice_time_plots"))
-    savefig(p, joinpath(config.figures_dir, "sealice_time_plots/All_policies_sealice_time_lambda_$(lambda_value).png"))
+    savefig(p, joinpath(config.figures_dir, "sealice_time_plots/All_policies_sealice_time.png"))
     return p
 end
 
 # ----------------------------
-# Plot 7b: Time-series of sea lice levels for specific policy only at specific lambda
+# Plot 7b: Time-series of sea lice levels for specific policy
 # ----------------------------
-function plot_algo_sealice_levels_over_time(config, algo_name, lambda_value)
+function plot_algo_sealice_levels_over_time(config, algo_name)
     # Initialize the plot
     p = plot(
-        title="$algo_name Policy: Sea Lice Levels Over Time (λ = $lambda_value)",
+        title="$algo_name Policy: Sea Lice Levels Over Time",
         xlabel="Time Step",
         ylabel="Average Sea Lice Level (Avg. Adult Female Lice per Fish)",
         legend=:bottomright,
@@ -326,8 +323,7 @@ function plot_algo_sealice_levels_over_time(config, algo_name, lambda_value)
         @load joinpath(config.results_dir, "$(policy_name)_avg_results.jld2") avg_results
         @load joinpath(config.simulations_dir, "$(policy_name)", "$(policy_name)_histories.jld2") histories
         
-        # Get histories for this lambda
-        histories_lambda = histories[lambda_value]
+        histories_lambda = histories
         
         # Calculate mean and 95% CI for each time step for all sea lice stages
         time_steps = 1:config.simulation_config.steps_per_episode
@@ -424,17 +420,17 @@ function plot_algo_sealice_levels_over_time(config, algo_name, lambda_value)
     end
     
     mkpath(joinpath(config.figures_dir, "sealice_time_plots"))
-    savefig(p, joinpath(config.figures_dir, "sealice_time_plots/$(algo_name)_sealice_time_lambda_$(lambda_value).png"))
+    savefig(p, joinpath(config.figures_dir, "sealice_time_plots/$(algo_name)_sealice_time.png"))
     return p
 end
 
 # ----------------------------
-# Plot 7c: Time-series of adult and predicted sea lice levels for NUS_SARSOP policy only at specific lambda
+# Plot 7c: Time-series of adult and predicted sea lice levels for NUS_SARSOP policy
 # ----------------------------
-function plot_algo_adult_predicted_over_time(config, algo_name, lambda_value)
+function plot_algo_adult_predicted_over_time(config, algo_name)
     # Initialize the plot
     p = plot(
-        title="$algo_name Policy: Adult vs Predicted Sea Lice Levels Over Time (λ = $lambda_value)",
+        title="$algo_name Policy: Adult vs Predicted Sea Lice Levels Over Time",
         xlabel="Time Step",
         ylabel="Average Sea Lice Level (Avg. Adult Female Lice per Fish)",
         legend=:bottomright,
@@ -448,8 +444,7 @@ function plot_algo_adult_predicted_over_time(config, algo_name, lambda_value)
         @load joinpath(config.results_dir, "$(policy_name)_avg_results.jld2") avg_results
         @load joinpath(config.simulations_dir, "$(policy_name)", "$(policy_name)_histories.jld2") histories
         
-        # Get histories for this lambda
-        histories_lambda = histories[lambda_value]
+        histories_lambda = histories
         
         # Calculate mean and 95% CI for each time step for adult and predicted
         time_steps = 1:config.simulation_config.steps_per_episode
@@ -532,17 +527,17 @@ function plot_algo_adult_predicted_over_time(config, algo_name, lambda_value)
     end
     
     mkpath(joinpath(config.figures_dir, "sealice_time_plots"))
-    savefig(p, joinpath(config.figures_dir, "sealice_time_plots/$(algo_name)_adult_predicted_lambda_$(lambda_value).png"))
+    savefig(p, joinpath(config.figures_dir, "sealice_time_plots/$(algo_name)_adult_predicted.png"))
     return p
 end
 
 # ----------------------------
-# Plot 8: Time-series of treatment cost for each policy at specific lambda
+# Plot 8: Time-series of treatment cost for each policy
 # ----------------------------
-function plot_policy_treatment_cost_over_time(config, lambda_value)
+function plot_policy_treatment_cost_over_time(config)
     # Initialize the plot
     p = plot(
-        title="Policy Comparison: Treatment Cost Over Time (λ = $lambda_value)",
+        title="Policy Comparison: Treatment Cost Over Time",
         xlabel="Time Step (Weeks)",
         ylabel="Treatment Probability",
         legend=:bottomleft,
@@ -567,8 +562,7 @@ function plot_policy_treatment_cost_over_time(config, lambda_value)
             @load joinpath(config.results_dir, "$(policy_name)_avg_results.jld2") avg_results
             @load joinpath(config.simulations_dir, "$(policy_name)", "$(policy_name)_histories.jld2") histories
             
-            # Get histories for this lambda
-            histories_lambda = histories[lambda_value]
+            histories_lambda = histories
             
             # Calculate mean treatment probability and 95% CI for each time step
             time_steps = 1:config.simulation_config.steps_per_episode
@@ -630,17 +624,17 @@ function plot_policy_treatment_cost_over_time(config, lambda_value)
         end
     end
     mkpath(joinpath(config.figures_dir, "treatment_cost_time_plots"))
-    savefig(p, joinpath(config.figures_dir, "treatment_cost_time_plots/All_policies_treatment_cost_time_lambda_$(lambda_value).png"))
+    savefig(p, joinpath(config.figures_dir, "treatment_cost_time_plots/All_policies_treatment_probability_time.png"))
     return p
 end
 
 # ----------------------------
-# Plot 8b: Time-series of actual treatment cost (probability * cost) for each policy at specific lambda
+# Plot 8b: Time-series of actual treatment cost (probability * cost) for each policy
 # ----------------------------
-function plot_policy_actual_treatment_cost_over_time(config, lambda_value)
+function plot_policy_actual_treatment_cost_over_time(config)
     # Initialize the plot
     p = plot(
-        title="Policy Comparison: Actual Treatment Cost Over Time (λ = $lambda_value)",
+        title="Policy Comparison: Actual Treatment Cost Over Time",
         xlabel="Time Step (Weeks)",
         ylabel="Expected Treatment Cost per Step",
         legend=:topleft,
@@ -665,8 +659,7 @@ function plot_policy_actual_treatment_cost_over_time(config, lambda_value)
             @load joinpath(config.results_dir, "$(policy_name)_avg_results.jld2") avg_results
             @load joinpath(config.simulations_dir, "$(policy_name)", "$(policy_name)_histories.jld2") histories
             
-            # Get histories for this lambda
-            histories_lambda = histories[lambda_value]
+            histories_lambda = histories
             
             # Calculate mean treatment cost and 95% CI for each time step
             time_steps = 1:config.simulation_config.steps_per_episode
@@ -728,17 +721,17 @@ function plot_policy_actual_treatment_cost_over_time(config, lambda_value)
         end
     end
     mkpath(joinpath(config.figures_dir, "treatment_cost_time_plots"))
-    savefig(p, joinpath(config.figures_dir, "treatment_cost_time_plots/All_policies_actual_treatment_cost_time_lambda_$(lambda_value).png"))
+    savefig(p, joinpath(config.figures_dir, "treatment_cost_time_plots/All_policies_actual_treatment_cost_time.png"))
     return p
 end
 
 # ----------------------------
-# Plot 8a: Time-series of treatment probability for each policy at specific lambda
+# Plot 8a: Time-series of treatment probability for each policy
 # ----------------------------
-function plot_policy_treatment_probability_over_time(config, lambda_value)
+function plot_policy_treatment_probability_over_time(config)
     # Initialize the plot
     p = plot(
-        title="Policy Comparison: Treatment Probability Over Time (λ = $lambda_value)",
+        title="Policy Comparison: Treatment Probability Over Time",
         xlabel="Time Step (Weeks)",
         ylabel="Treatment Probability",
         legend=:topleft,
@@ -763,8 +756,7 @@ function plot_policy_treatment_probability_over_time(config, lambda_value)
             @load joinpath(config.results_dir, "$(policy_name)_avg_results.jld2") avg_results
             @load joinpath(config.simulations_dir, "$(policy_name)", "$(policy_name)_histories.jld2") histories
             
-            # Get histories for this lambda
-            histories_lambda = histories[lambda_value]
+            histories_lambda = histories
             
             # Calculate mean treatment probability and 95% CI for each time step
             time_steps = 1:config.simulation_config.steps_per_episode
@@ -826,6 +818,6 @@ function plot_policy_treatment_probability_over_time(config, lambda_value)
         end
     end
     mkpath(joinpath(config.figures_dir, "treatment_cost_time_plots"))
-    savefig(p, joinpath(config.figures_dir, "treatment_cost_time_plots/All_policies_treatment_cost_time_lambda_$(lambda_value).png"))
+    savefig(p, joinpath(config.figures_dir, "treatment_cost_time_plots/All_policies_treatment_cost_time.png"))
     return p
 end

@@ -154,11 +154,10 @@ end
 # Plot 1: Time series of belief means and variances using PGFPlotsX
 # Creates side-by-side plots showing belief trajectories for Adult, Motile, and Sessile
 # ----------------------------
-function plos_one_plot_kalman_filter_belief_trajectory(data, algo_name, config, lambda)
+function plos_one_plot_kalman_filter_belief_trajectory(data, algo_name, config)
 
-    # Filter the data to only include the algorithm and chosen lambda
+    # Filter the data to only include the algorithm
     data = filter(row -> row.policy == algo_name, data)
-    data = filter(row -> row.lambda == lambda, data)
 
     # Extract first belief history for given solver
     history = data.history[1]
@@ -902,15 +901,18 @@ end
 # Policy Action Heatmap: Shows which actions SARSOP policy chooses
 # based on sea temperature and current sea lice levels
 # ----------------------------
-function plos_one_sarsop_dominant_action(parallel_data, config, λ=0.6)
+function plos_one_sarsop_dominant_action(parallel_data, config)
     
     # Load the SARSOP policy
-    policy_path = joinpath(config.policies_dir, "NUS_SARSOP_Policy", "policy_pomdp_mdp_$(λ)_lambda.jld2")
+    policy_path = joinpath(config.policies_dir, "policies_pomdp_mdp.jld2")
     if !isfile(policy_path)
         error("Policy file not found: $policy_path")
     end
     
-    @load policy_path policy pomdp mdp
+    @load policy_path all_policies
+    policy_bundle = all_policies["NUS_SARSOP_Policy"]
+    policy = policy_bundle.policy
+    pomdp = policy_bundle.pomdp
     
     # Define temperature and sea lice level ranges
     temp_range = 8.0:0.5:24.0  # Sea temperature range (°C)
@@ -1014,11 +1016,10 @@ end
 # Kalman Filter Trajectory with 3σ Confidence Band
 # Shows ground truth, noisy observations, KF estimate, and 3σ uncertainty
 # ----------------------------
-function plot_kalman_filter_trajectory_with_uncertainty(data, algo_name, config, lambda)
+function plot_kalman_filter_trajectory_with_uncertainty(data, algo_name, config)
     
-    # Filter the data to only include the algorithm and chosen lambda
+    # Filter the data to only include the algorithm
     data = filter(row -> row.policy == algo_name, data)
-    data = filter(row -> row.lambda == lambda, data)
     
     # Extract first belief history for given solver
     history = data.history[1]
@@ -1115,8 +1116,8 @@ function plot_kalman_filter_trajectory_with_uncertainty(data, algo_name, config,
     # Save the plot
     mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
     mkpath("Quick_Access")
-    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "kalman_filter_trajectory_3sigma_$(algo_name)_lambda_$(lambda)_latex.pdf"), ax)
-    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "kalman_filter_trajectory_3sigma_$(algo_name)_lambda_$(lambda)_latex.tex"), ax; include_preamble=false)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "kalman_filter_trajectory_3sigma_$(algo_name)_latex.pdf"), ax)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "kalman_filter_trajectory_3sigma_$(algo_name)_latex.tex"), ax; include_preamble=false)
     return ax
 end
 
@@ -1135,10 +1136,10 @@ end
 # ---------------------------------------------------------------------------
 # Improved: two-panel figure (top: levels; bottom: residuals)
 # ---------------------------------------------------------------------------
-function plot_kalman_filter_belief_trajectory_two_panel(data, algo_name, config, λ)
+function plot_kalman_filter_belief_trajectory_two_panel(data, algo_name, config)
     # Filter rows
-    data = filter(row -> row.policy == algo_name && row.lambda == λ, data)
-    @assert nrow(data) > 0 "No rows matching policy=$(algo_name) and lambda=$(λ)."
+    data = filter(row -> row.policy == algo_name, data)
+    @assert nrow(data) > 0 "No rows matching policy=$(algo_name)."
 
     # Extract first history bundle
     history = data.history[1]
@@ -1318,9 +1319,9 @@ function plot_kalman_filter_belief_trajectory_two_panel(data, algo_name, config,
     # Save
     mkpath("Quick_Access")
     mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
-    out1 = joinpath(config.figures_dir, "Plos_One_Plots", "2_panel_kalman_filter_belief_trajectory_$(algo_name)_lambda_$(λ)_latex.pdf")
-    out1_tex = joinpath(config.figures_dir, "Plos_One_Plots", "2_panel_kalman_filter_belief_trajectory_$(algo_name)_lambda_$(λ)_latex.tex")
-    out2 = joinpath("Quick_Access", "2_panel_kalman_filter_belief_trajectory_$(algo_name)_lambda_$(λ)_latex.pdf")
+    out1 = joinpath(config.figures_dir, "Plos_One_Plots", "2_panel_kalman_filter_belief_trajectory_$(algo_name)_latex.pdf")
+    out1_tex = joinpath(config.figures_dir, "Plos_One_Plots", "2_panel_kalman_filter_belief_trajectory_$(algo_name)_latex.tex")
+    out2 = joinpath("Quick_Access", "2_panel_kalman_filter_belief_trajectory_$(algo_name)_latex.pdf")
     PGFPlotsX.save(out1, gp)
     PGFPlotsX.save(out1_tex, gp; include_preamble=false)
     PGFPlotsX.save(out2, gp)
@@ -1331,7 +1332,7 @@ end
 # ----------------------------
 # Shows Adult, Sessile, Motile, and Predicted sea lice levels over time with 95% CI bands
 # ----------------------------
-function plos_one_algo_sealice_levels_over_time(config, algo_name, lambda_value)
+function plos_one_algo_sealice_levels_over_time(config, algo_name)
 
     policy_name = algo_name
 
@@ -1339,8 +1340,7 @@ function plos_one_algo_sealice_levels_over_time(config, algo_name, lambda_value)
     @load joinpath(config.results_dir, "$(policy_name)_avg_results.jld2") avg_results
     @load joinpath(config.simulations_dir, "$(policy_name)", "$(policy_name)_histories.jld2") histories
 
-    # Get histories for this lambda
-    histories_lambda = histories[lambda_value]
+    histories_lambda = histories
 
     # Calculate mean and 95% CI band for each time step for all sea lice stages
     time_steps = 1:config.simulation_config.steps_per_episode
@@ -1465,9 +1465,9 @@ function plos_one_algo_sealice_levels_over_time(config, algo_name, lambda_value)
 
     mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
     mkpath("Quick_Access")
-    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "$(algo_name)_sealice_levels_lambda_$(lambda_value).pdf"), ax)
-    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "$(algo_name)_sealice_levels_lambda_$(lambda_value).tex"), ax; include_preamble=false)
-    PGFPlotsX.save(joinpath("Quick_Access", "$(algo_name)_sealice_levels_lambda_$(lambda_value).pdf"), ax)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "$(algo_name)_sealice_levels.pdf"), ax)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "$(algo_name)_sealice_levels.tex"), ax; include_preamble=false)
+    PGFPlotsX.save(joinpath("Quick_Access", "$(algo_name)_sealice_levels.pdf"), ax)
 
     return ax
 end

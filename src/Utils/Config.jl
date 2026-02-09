@@ -156,9 +156,6 @@ end
     solver_config::SolverConfig = SolverConfig()
     simulation_config::SimulationConfig = SimulationConfig()
 
-    # Algorithm parameters
-    lambda_values::Vector{Float64} = [0.6]
-
     # File management
     experiment_name::String = "exp"
     policies_dir::String = joinpath("results", "experiments", experiment_name,"policies")
