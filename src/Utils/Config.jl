@@ -124,9 +124,9 @@ end
     sessile_obs_sd::Float64 = 0.10
 
     # Observation noise (measurement uncertainty from Negative Binomial sampling)
-    adult_sd::Float64 = 0.05    # 0.1
-    motile_sd::Float64 = 0.1    # 0.29
-    sessile_sd::Float64 = 0.05  # 0.16
+    adult_sd::Float64 = 0.1     # 0.05
+    motile_sd::Float64 = 0.29   # 0.1
+    sessile_sd::Float64 = 0.16  # 0.05
     temp_sd::Float64 = 0.3
 
     # Observation parameters from Aldrin et al. 2023

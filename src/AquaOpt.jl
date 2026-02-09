@@ -144,7 +144,7 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
         sarsop_time, vi_iters, qmdp_iters, disc_step = 5.0, 100, 100, 0.1
         n_episodes, n_steps = 100, 52
     elseif mode == "paper"
-        sarsop_time, vi_iters, qmdp_iters, disc_step = 800.0, 800, 800, 0.01
+        sarsop_time, vi_iters, qmdp_iters, disc_step = 3000.0, 800, 800, 0.01
         n_episodes, n_steps = 1000, 100
     else
         error("Invalid mode: $mode. Must be 'debug' or 'paper'")

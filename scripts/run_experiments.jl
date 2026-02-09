@@ -15,7 +15,7 @@ using AquaOpt
 
 function run_experiments(mode)
 
-    plot_flag = false
+    plot_flag = true
 
     # Option 1: Balanced [treatment, regulatory, biomass, health, sea lice]
     reward_lambdas1 = [0.46, 0.12, 0.12, 0.18, 0.12]
