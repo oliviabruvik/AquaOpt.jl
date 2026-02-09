@@ -39,49 +39,41 @@ end
 function evaluate_simulation_results(config, algorithm, histories)
 
     avg_results = DataFrame(
-        lambda=Float64[],
         avg_treatment_cost=Float64[],
         avg_sealice=Float64[],
         avg_reward=Float64[],
     )
 
-    for λ in config.lambda_values
+    episode_costs, episode_abundances, episode_rewards = [], [], []
 
-        # Get histories for this lambda
-        histories_lambda = histories[λ]
+    for episode in 1:config.simulation_config.num_episodes
 
-        episode_costs, episode_abundances, episode_rewards = [], [], []
+        # Get episode history
+        episode_history = histories[episode]
 
-        for episode in 1:config.simulation_config.num_episodes
+        # Get action, state, and reward histories
+        actions = collect(action_hist(episode_history))
+        states = collect(state_hist(episode_history))
+        rewards = collect(reward_hist(episode_history))
 
-            # Get episode history
-            episode_history = histories_lambda[episode]
+        # Get total treatment cost
+        episode_cost = sum(get_treatment_cost(a) for a in actions)
 
-            # Get action, state, and reward histories
-            actions = collect(action_hist(episode_history))
-            states = collect(state_hist(episode_history))
-            rewards = collect(reward_hist(episode_history))
+        # Get mean abundance
+        episode_abundance = mean(s.SeaLiceLevel for s in states)
 
-            # Get total treatment cost
-            episode_cost = sum(get_treatment_cost(a) for a in actions)
-            
-            # Get mean abundance
-            episode_abundance = mean(s.SeaLiceLevel for s in states)
+        # Get mean reward
+        episode_reward = mean(rewards)
 
-            # Get mean reward
-            episode_reward = mean(rewards)
-
-            # Add to episode lists
-            push!(episode_costs, episode_cost)
-            push!(episode_abundances, episode_abundance)
-            push!(episode_rewards, episode_reward)
-        end
-
-        # Calculate the average reward, cost, and sea lice level
-        avg_reward, avg_treatment_cost, avg_abundance = mean(episode_rewards), mean(episode_costs), mean(episode_abundances)
-        push!(avg_results, (λ, avg_treatment_cost, avg_abundance, avg_reward))
-
+        # Add to episode lists
+        push!(episode_costs, episode_cost)
+        push!(episode_abundances, episode_abundance)
+        push!(episode_rewards, episode_reward)
     end
+
+    # Calculate the average reward, cost, and sea lice level
+    avg_reward, avg_treatment_cost, avg_abundance = mean(episode_rewards), mean(episode_costs), mean(episode_abundances)
+    push!(avg_results, (avg_treatment_cost, avg_abundance, avg_reward))
 
     # Save results
     mkpath(config.results_dir)
@@ -94,85 +86,35 @@ end
 # ----------------------------
 # Extract histories for a specific algorithm from parallel simulation results
 # Takes in config, algorithm and parallel data
-# Returns a histories object where the key is the lambda value and the value is a vector of episode histories
+# Returns a vector of episode histories
 # ----------------------------
 function extract_simulation_histories(config, algorithm, parallel_data)
 
-    histories = Dict{Float64, Vector{Any}}()
+    data_policy = filter(row -> row.policy == algorithm.solver_name, parallel_data)
 
-    for λ in config.lambda_values
-
-        # Get histories for this lambda
-        data_lambda_idx = parallel_data.lambda .== λ .&& parallel_data.policy .== algorithm.solver_name
-        data_lambda = parallel_data[data_lambda_idx, [:episode_number, :history]]
-
-        episode_histories = Vector{typeof(first(data_lambda.history))}()
-
-        for episode in 1:config.simulation_config.num_episodes
-
-            # Get histories for this episode
-            data_episode = data_lambda[data_lambda.episode_number .== episode, :]
-
-            if nrow(data_episode) == 1
-                push!(episode_histories, data_episode.history[1])
-            else
-                error("Expected 1 history for lambda=$(λ), policy=$(algorithm.solver_name), seed=$(episode), but found $(nrow(data_episode))")
-            end
-        end
-
-        histories[λ] = episode_histories
-    end
+    episode_histories = collect(data_policy.history)
 
     # Create directory for simulation histories
     histories_dir = joinpath(config.simulations_dir, "$(algorithm.solver_name)")
     mkpath(histories_dir)
-    histories_filename = "$(algorithm.solver_name)_histories"
     histories_filepath = joinpath(histories_dir, "$(algorithm.solver_name)_histories.jld2")
+    histories = episode_histories
     @save histories_filepath histories
 
     return histories
 end
 
 # ----------------------------
-# Display the mean and confidence interval for each lambda and each policy
+# Display the mean and confidence interval for each policy
 # ----------------------------
 function display_rewards_across_policies(parallel_data, config)
 
-    # Display the mean and confidence interval for each lambda and each policy
-    for λ in config.lambda_values
+    data_grouped_by_policy = groupby(parallel_data, :policy)
+    result = combine(data_grouped_by_policy, :reward => mean_and_ci => AsTable)
 
-        println("Lambda: $(λ)")
-
-        # Filter data for current lambda
-        data_filtered = filter(row -> row.lambda == λ, parallel_data)
-        data_grouped_by_policy = groupby(data_filtered, :policy)
-        result = combine(data_grouped_by_policy, :reward => mean_and_ci => AsTable)
-
-        # Order by mean reward
-        result = sort(result, :mean, rev=true)
-        println(result)
-    
-    end
-end
-
-# ----------------------------
-# Display the best lambda for each policy
-# ----------------------------
-function display_best_lambda_for_each_policy(parallel_data, algorithms)
-
-    # Get all unique policies
-    policies = unique(parallel_data.policy)
-
-    for algo in algorithms
-
-        println("Policy: $(algo.solver_name)")
-
-        # Filter data for current policy
-        data_filtered = filter(row -> row.policy == algo.solver_name, parallel_data)
-        data_grouped_by_lambda = groupby(data_filtered, :lambda)
-        result = combine(data_grouped_by_lambda, :reward => mean_and_ci => AsTable)
-        println(result)
-    end
+    # Order by mean reward
+    result = sort(result, :mean, rev=true)
+    println(result)
 end
 
 # ----------------------------
@@ -237,21 +179,14 @@ function extract_reward_metrics(data, config)
 end
 
 # ----------------------------
-# Display the mean and confidence interval for each lambda and each policy
+# Display the mean and confidence interval for each policy
 # ----------------------------
 function display_reward_metrics(parallel_data, config, display_ci=false, print_sd=false)
 
-    # Display the mean and confidence interval for each lambda and each policy
-    for λ in config.lambda_values
+    data_grouped_by_policy = groupby(parallel_data, :policy)
 
-        println("Lambda: $(λ)")
-
-        # Filter data for current lambda
-        data_filtered = filter(row -> row.lambda == λ, parallel_data)
-        data_grouped_by_policy = groupby(data_filtered, :policy)
-
-        # Check if treatments column exists in the data
-        if :treatments in names(data_filtered)
+    # Check if treatments column exists in the data
+    if :treatments in names(parallel_data)
             # Process each column separately to avoid duplicate column names
             if display_ci
                 result = combine(
@@ -270,14 +205,14 @@ function display_reward_metrics(parallel_data, config, display_ci=false, print_s
                     :lost_biomass_1000kg => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_lost_biomass_1000kg,
                     :fish_disease => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_fish_disease,
                     :fish_disease => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_fish_disease,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_NoTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_NoTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], MechanicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_MechanicalTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], MechanicalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_MechanicalTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], ChemicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ChemicalTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], ChemicalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_ChemicalTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ThermalTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_ThermalTreatment
+                    :treatments => (x -> round(mean_and_ci([get(t, NoTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_NoTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, NoTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_NoTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, MechanicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_MechanicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, MechanicalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_MechanicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, ChemicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ChemicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, ChemicalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_ChemicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, ThermalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ThermalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, ThermalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_ThermalTreatment
                 )
             else
                 result = combine(
@@ -289,10 +224,10 @@ function display_reward_metrics(parallel_data, config, display_ci=false, print_s
                     :num_regulatory_penalties => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_num_regulatory_penalties,
                     :lost_biomass_1000kg => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_lost_biomass_1000kg,
                     :fish_disease => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_fish_disease,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_NoTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], MechanicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_MechanicalTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], ChemicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ChemicalTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ThermalTreatment
+                    :treatments => (x -> round(mean_and_ci([get(t, NoTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_NoTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, MechanicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_MechanicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, ChemicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ChemicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, ThermalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ThermalTreatment
                 )
             end
         else
@@ -336,8 +271,6 @@ function display_reward_metrics(parallel_data, config, display_ci=false, print_s
         if print_sd
             # Create pivot table format
             println("\n" * "="^80)
-            println("LAMBDA: $(λ)")
-            println("="^80)
             
             # Print header
             println(@sprintf("%-20s %12s %12s %12s %12s %12s", 
@@ -376,7 +309,7 @@ function display_reward_metrics(parallel_data, config, display_ci=false, print_s
             end
             
             # If treatments column exists, print treatment distribution
-            if :treatments in names(data_filtered)
+            if :treatments in names(parallel_data)
                 println("\nTreatment Distribution:")
                 println("-"^50)
                 println(@sprintf("%-20s %12s %12s %12s %12s", "Policy", "No Treatment", "Mechanical", "Chemical", "Thermal"))
@@ -395,13 +328,12 @@ function display_reward_metrics(parallel_data, config, display_ci=false, print_s
             end
         end
         
-        println("\n")
+    println("\n")
 
-        # Save results to csv
-        mkpath(config.results_dir)
-        CSV.write(joinpath(config.results_dir, "reward_metrics_lambda_$(λ).csv"), result)
-    
-    end
+    # Save results to csv
+    mkpath(config.results_dir)
+    CSV.write(joinpath(config.results_dir, "reward_metrics.csv"), result)
+
 end
 
 function print_reward_metrics_for_vi_policy(data, config)
@@ -436,17 +368,10 @@ function print_reward_metrics_for_vi_policy(data, config)
      parallel_data = data
      display_ci = true
  
-    # Display the mean and confidence interval for each lambda and each policy
-    for λ in config.lambda_values
+    data_grouped_by_policy = groupby(parallel_data, :policy)
 
-        println("Lambda: $(λ)")
-
-        # Filter data for current lambda
-        data_filtered = filter(row -> row.lambda == λ, parallel_data)
-        data_grouped_by_policy = groupby(data_filtered, :policy)
-
-        # Check if treatments column exists in the data
-        if :treatments in names(data_filtered)
+    # Check if treatments column exists in the data
+    if :treatments in names(parallel_data)
             # Process each column separately to avoid duplicate column names
             if display_ci
                 result = combine(
@@ -459,14 +384,14 @@ function print_reward_metrics_for_vi_policy(data, config)
                     :treatment_cost => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_treatment_cost,
                     :num_regulatory_penalties => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_num_regulatory_penalties,
                     :num_regulatory_penalties => (x -> round(mean_and_ci(x).ci, digits=2)) => :ci_num_regulatory_penalties,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_NoTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_NoTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], MechanicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_MechanicalTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], MechanicalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_MechanicalTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], ChemicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ChemicalTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], ChemicalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_ChemicalTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ThermalTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_ThermalTreatment
+                    :treatments => (x -> round(mean_and_ci([get(t, NoTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_NoTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, NoTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_NoTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, MechanicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_MechanicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, MechanicalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_MechanicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, ChemicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ChemicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, ChemicalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_ChemicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, ThermalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ThermalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, ThermalTreatment, 0) for t in x]).ci, digits=2)) => :ci_num_ThermalTreatment
                 )
             else
                 result = combine(
@@ -475,10 +400,10 @@ function print_reward_metrics_for_vi_policy(data, config)
                     :mean_rewards_across_sims => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_mean_rewards_across_sims,
                     :treatment_cost => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_treatment_cost,
                     :num_regulatory_penalties => (x -> round(mean_and_ci(x).mean, digits=2)) => :mean_num_regulatory_penalties,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], NoTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_NoTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], MechanicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_MechanicalTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], ChemicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ChemicalTreatment,
-                    :treatments => (x -> round(mean_and_ci([get(t[1], ThermalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ThermalTreatment
+                    :treatments => (x -> round(mean_and_ci([get(t, NoTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_NoTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, MechanicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_MechanicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, ChemicalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ChemicalTreatment,
+                    :treatments => (x -> round(mean_and_ci([get(t, ThermalTreatment, 0) for t in x]).mean, digits=2)) => :mean_num_ThermalTreatment
                 )
             end
         else
@@ -515,9 +440,8 @@ function print_reward_metrics_for_vi_policy(data, config)
 
         # Save results to csv
         mkpath(config.results_dir)
-        CSV.write(joinpath(config.results_dir, "reward_metrics_lambda_$(λ).csv"), result)
+        CSV.write(joinpath(config.results_dir, "reward_metrics.csv"), result)
 
-    end
 end
 
 # ----------------------------
@@ -527,87 +451,79 @@ end
 # ----------------------------
 function print_treatment_frequency(data, config)
 
-    for lambda in config.lambda_values
+    treatment_counts = Dict{String, Dict{String, Vector{Int}}}()
 
-        println("Lambda: $(lambda)")
+    # Get all unique policies
+    policies = unique(data.policy)
 
-        # Get histories for this lambda
-        data_lambda = filter(row -> row.lambda == lambda, data)
+    for policy in policies
 
-        treatment_counts = Dict{String, Dict{String, Vector{Int}}}()
+        # Initialize the inner dictionary for this policy
+        treatment_counts[policy] = Dict{String, Vector{Int}}(
+            "NoTreatment" => [],
+            "MechanicalTreatment" => [],
+            "ChemicalTreatment" => [],
+            "ThermalTreatment" => [],
+        )
 
-        # Get all unique policies
-        policies = unique(data_lambda.policy)
+        # Get histories for this policy
+        data_policy = filter(row -> row.policy == policy, data)
 
-        for policy in policies
+        # Get all unique seeds
+        seeds = unique(data_policy.seed)
 
-            # Initialize the inner dictionary for this policy
-            treatment_counts[policy] = Dict{String, Vector{Int}}(
-                "NoTreatment" => [],
-                "MechanicalTreatment" => [],
-                "ChemicalTreatment" => [],
-                "ThermalTreatment" => [],
-            )
+        for seed in seeds
 
-            # Get histories for this policy
-            data_policy = filter(row -> row.policy == policy, data_lambda)
+            # Get histories for this seed
+            data_seed = filter(row -> row.seed == seed, data_policy)
 
-            # Get all unique seeds
-            seeds = unique(data_policy.seed)
+            # Get the treatment count from the data.treatments column
+            treatment_count = data_seed.treatments[1]  # Get the first (and only) treatment count dictionary
 
-            for seed in seeds
+            # Count the number of times each treatment is taken
+            push!(treatment_counts[policy]["NoTreatment"], get(treatment_count, NoTreatment, 0))
+            push!(treatment_counts[policy]["MechanicalTreatment"], get(treatment_count, MechanicalTreatment, 0))
+            push!(treatment_counts[policy]["ChemicalTreatment"], get(treatment_count, ChemicalTreatment, 0))
+            push!(treatment_counts[policy]["ThermalTreatment"], get(treatment_count, ThermalTreatment, 0))
 
-                # Get histories for this seed
-                data_seed = filter(row -> row.seed == seed, data_policy)
-
-                # Get the treatment count from the data.treatments column
-                treatment_count = data_seed.treatments[1]  # Get the first (and only) treatment count dictionary
-
-                # Count the number of times each treatment is taken
-                push!(treatment_counts[policy]["NoTreatment"], get(treatment_count, NoTreatment, 0))
-                push!(treatment_counts[policy]["MechanicalTreatment"], get(treatment_count, MechanicalTreatment, 0))
-                push!(treatment_counts[policy]["ChemicalTreatment"], get(treatment_count, ChemicalTreatment, 0))
-                push!(treatment_counts[policy]["ThermalTreatment"], get(treatment_count, ThermalTreatment, 0))
-
-            end
         end
-
-        # Print the treatment counts for each policy as a table
-        # Create a DataFrame from the treatment counts
-        # Add mean and confidence interval to the dataframe
-        treatment_data = []
-        for (policy, counts) in treatment_counts
-            push!(treatment_data, (
-                policy = policy,
-                NoTreatment = mean_and_ci(counts["NoTreatment"]).mean,
-                MechanicalTreatment = mean_and_ci(counts["MechanicalTreatment"]).mean,
-                ChemicalTreatment = mean_and_ci(counts["ChemicalTreatment"]).mean,
-                ThermalTreatment = mean_and_ci(counts["ThermalTreatment"]).mean,
-            ))
-        end
-        
-        # Convert to DataFrame and display
-        if !isempty(treatment_data)
-            treatment_df = DataFrame(treatment_data)
-            println(treatment_df)
-        else
-            println("No treatment data available for lambda $(lambda)")
-        end
-
-        # Save treatment data to csv
-        mkpath(config.results_dir)
-        CSV.write(joinpath(config.results_dir, "treatment_data_lambda_$(lambda).csv"), treatment_df)
     end
+
+    # Print the treatment counts for each policy as a table
+    # Create a DataFrame from the treatment counts
+    # Add mean and confidence interval to the dataframe
+    treatment_data = []
+    for (policy, counts) in treatment_counts
+        push!(treatment_data, (
+            policy = policy,
+            NoTreatment = mean_and_ci(counts["NoTreatment"]).mean,
+            MechanicalTreatment = mean_and_ci(counts["MechanicalTreatment"]).mean,
+            ChemicalTreatment = mean_and_ci(counts["ChemicalTreatment"]).mean,
+            ThermalTreatment = mean_and_ci(counts["ThermalTreatment"]).mean,
+        ))
+    end
+    
+    # Convert to DataFrame and display
+    if !isempty(treatment_data)
+        treatment_df = DataFrame(treatment_data)
+        println(treatment_df)
+    else
+        println("No treatment data available.")
+    end
+
+    # Save treatment data to csv
+    mkpath(config.results_dir)
+    CSV.write(joinpath(config.results_dir, "treatment_data.csv"), treatment_df)
 end
 
 
 # ----------------------------
 # Print all histories to a text file
 # Data stores the histories in a dataframe with the following columns:
-# reward, n_steps, history, policy, lambda, seed
+# reward, n_steps, history, policy, seed
 # Creates a simulation_steps folder with a text file for each episode.
 # The text file contains the history for each step in the episode.
-# The text file is named lambda_<lambda>_seed_<seed>_simulation_history.txt
+# The text file is named seed_<seed>_simulation_history.txt
 # ----------------------------
 function print_histories(data, config)
 
@@ -622,26 +538,18 @@ function print_histories(data, config)
         # Create policy folder
         mkpath(joinpath(config.simulations_dir, policy))
 
-        # Get all unique lambdas
-        lambdas = unique(data_policy.lambda)
+        # Get all unique seeds
+        seeds = unique(data_policy.seed)
 
-        for lambda in lambdas
+        for seed in seeds
 
-            # Get histories for this lambda
-            data_lambda = filter(row -> row.lambda == lambda, data_policy)
+            # Get histories for this seed
+            data_seed = filter(row -> row.seed == seed, data_policy)
+            h = data_seed.history[1]
+            episode = 1
 
-            # Get all unique seeds
-            seeds = unique(data_lambda.seed)
-
-            for seed in seeds
-
-                # Get histories for this seed
-                data_seed = filter(row -> row.seed == seed, data_lambda)
-                h = data_seed.history[1]
-                episode = 1
-
-                filename = "lambda_$(lambda)_seed_$(seed)_simulation_history.txt"
-                filepath = joinpath(config.simulations_dir, policy, filename)
+            filename = "seed_$(seed)_simulation_history.txt"
+            filepath = joinpath(config.simulations_dir, policy, filename)
 
                 # Create file if it doesn't exist
                 if !isfile(filepath)
@@ -704,7 +612,6 @@ function print_histories(data, config)
                     end
 
                     episode += 1
-                end
             end
         end
     end

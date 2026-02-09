@@ -35,11 +35,8 @@ end
 @with_kw struct SeaLiceLogPOMDP <: POMDP{SeaLiceLogState, Action, SeaLiceLogObservation}
 
     # Parameters
-	lambda::Float64 = 0.5
     reward_lambdas::Vector{Float64} = [0.5, 0.5, 0.0, 0.0, 0.0] # [treatment, regulatory, biomass, health, sea lice]
-	costOfTreatment::Float64 = 10.0
-	growthRate::Float64 = 1.2
-    discount_factor::Float64 = 0.95
+	discount_factor::Float64 = 0.95
     full_observability_solver::Bool = false
     location::String = "north"
     reproduction_rate::Float64 = 2.0

@@ -53,11 +53,8 @@ end
 @with_kw struct SeaLiceSimPOMDP <: POMDP{EvaluationState, Action, EvaluationObservation}
 
     # Parameters
-	lambda::Float64 = 0.5
     reward_lambdas::Vector{Float64} = [0.5, 0.5, 0.0, 0.0, 0.0] # [treatment, regulatory, biomass, health, sea_lice]
-	costOfTreatment::Float64 = 10.0
-	growthRate::Float64 = 0.3
-    reproduction_rate::Float64 = 2.0  # Number of sessile larvae produced per adult female per week
+	reproduction_rate::Float64 = 2.0  # Number of sessile larvae produced per adult female per week
     discount_factor::Float64 = 0.95
 
     # Regulation parameters

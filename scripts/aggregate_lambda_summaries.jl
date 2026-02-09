@@ -17,9 +17,8 @@ const EXPERIMENT_FOLDERS = [
     "results/experiments/2025-11-18/2025-11-18T22:08:47.305_log_space_ukf_paper_north_[0.4, 0.1, 0.1, 0.5, 0.2]",
 ]
 
-const TARGET_LAMBDA = 0.6
-const TABLE_OUTPUT_PATH = "Quick_Access/lambda_treatment_summary.tex"
-const FIGURE_OUTPUT_PATH = "Quick_Access/lambda_dominant_actions.tex"
+const TABLE_OUTPUT_PATH = "Quick_Access/policy_treatment_summary.tex"
+const FIGURE_OUTPUT_PATH = "Quick_Access/policy_dominant_actions.tex"
 
 const TREATMENT_COLUMNS = ["NoTreatment", "MechanicalTreatment", "ChemicalTreatment", "ThermalTreatment"]
 const TREATMENT_LABELS = Dict(
@@ -81,8 +80,8 @@ function load_experiment_config(experiment_root::String)
     return adjust_config_paths!(config, experiment_root)
 end
 
-function load_treatment_data(experiment_root::String; λ::Float64=TARGET_LAMBDA)
-    csv_path = joinpath(experiment_root, "avg_results", "treatment_data_lambda_$(λ).csv")
+function load_treatment_data(experiment_root::String)
+    csv_path = joinpath(experiment_root, "avg_results", "treatment_data.csv")
     isfile(csv_path) || error("Missing treatment summary at $csv_path")
     df = CSV.read(csv_path, DataFrame)
     rename!(df, Symbol.(names(df)))
@@ -159,8 +158,8 @@ function build_table(entries::Vector{ExperimentSummary})
 
     push!(lines, "\\bottomrule")
     push!(lines, "\\end{tabular}")
-    push!(lines, "\\caption{Average number of treatments per policy for each \\(\\lambda\\) combination.}")
-    push!(lines, "\\label{tab:lambda_treatment_summary}")
+    push!(lines, "\\caption{Average number of treatments per policy for each reward-weight combination.}")
+    push!(lines, "\\label{tab:policy_treatment_summary}")
     push!(lines, "\\end{table}")
     return join(lines, "\n")
 end
@@ -175,13 +174,15 @@ function save_table(entries::Vector{ExperimentSummary}; output_path::String=TABL
 end
 
 function build_dominant_action_axis(config::ExperimentConfig;
-        λ::Float64=TARGET_LAMBDA,
         include_legend::Bool=false,
         axis_width::String="5.6cm",
         axis_height::String="4.8cm")
-    policy_path = joinpath(config.policies_dir, "NUS_SARSOP_Policy", "policy_pomdp_mdp_$(λ)_lambda.jld2")
+    policy_path = joinpath(config.policies_dir, "policies_pomdp_mdp.jld2")
     isfile(policy_path) || error("SARSOP policy not found at $policy_path")
-    @load policy_path policy pomdp mdp
+    @load policy_path all_policies
+    policy_bundle = all_policies["NUS_SARSOP_Policy"]
+    policy = policy_bundle.policy
+    pomdp = policy_bundle.pomdp
 
     temp_range = 8.0:0.5:24.0
     sealice_range = 0.0:0.01:1.0
@@ -269,12 +270,11 @@ function build_dominant_action_axis(config::ExperimentConfig;
 end
 
 function save_combined_dominant_plot(entries::Vector{ExperimentSummary};
-        λ::Float64=TARGET_LAMBDA,
         output_path::String=FIGURE_OUTPUT_PATH)
     axes = Vector{Axis}()
     for (idx, entry) in enumerate(entries)
         include_legend = idx == 1
-        ax = build_dominant_action_axis(entry.config; λ=λ, include_legend=include_legend)
+        ax = build_dominant_action_axis(entry.config; include_legend=include_legend)
         ax.options["title"] = entry.label
         push!(axes, ax)
     end

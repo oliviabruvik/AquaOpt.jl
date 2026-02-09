@@ -299,10 +299,8 @@ function solver_model_rows(config::ExperimentConfig)
     return [
         ("Deployment region", format_text(sc.location)),
         ("Discount factor", format_number(sc.discount_factor; digits=2)),
-        ("Cost of treatment", format_number(sc.costOfTreatment; digits=2)),
         ("Regulation limit", format_number(sc.regulation_limit; digits=2)),
         ("Reproduction rate", format_number(sc.reproduction_rate; digits=2)),
-        ("Growth rate", format_number(sc.growthRate; digits=2)),
         ("State discretization step", format_number(sc.discretization_step; digits=2)),
         ("Raw-space sampling sd", format_number(sc.adult_sd; digits=2)),
         ("Solver reward weights \\(\\lambda\\)", latex_array(sc.reward_lambdas)),
@@ -559,8 +557,8 @@ function write_noise_table(rows; filename::String, caption::String, label::Strin
     return output_path
 end
 
-function load_reward_metrics(config::ExperimentConfig; λ::Float64=0.6)
-    csv_path = joinpath(config.results_dir, "reward_metrics_lambda_$(λ).csv")
+function load_reward_metrics(config::ExperimentConfig)
+    csv_path = joinpath(config.results_dir, "reward_metrics.csv")
     isfile(csv_path) || error("Missing reward metrics at $(csv_path)")
     df = CSV.read(csv_path, DataFrame)
     return df
@@ -674,7 +672,7 @@ function main()
         ["Policy", "Mean reward", "Adult lice", "Regulatory penalties", "Lost biomass (1000 kg)"],
         policy_metrics_rows(reward_df);
         filename="policy_evaluation_summary.tex",
-        caption="Policy evaluation summary at target \\(\\lambda\\).",
+        caption="Policy evaluation summary.",
         label="tab:policy_summary"))
     push!(outputs, write_treatment_table(treatment_table_rows();
         filename="treatment_parameters.tex",

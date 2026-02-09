@@ -34,24 +34,17 @@ end
 # ----------------------------
 # Load policy, pomdp, and mdp for a given algorithm
 # ----------------------------
-function load_policy_pomdp_mdp(experiment_path, solver_name, lambda)
-    # Construct path to the policy file
-    policy_path = joinpath(experiment_path, "policies", solver_name, "policy_pomdp_mdp_$(lambda)_lambda.jld2")
+function load_policy_pomdp_mdp(experiment_path, solver_name)
+    policy_path = joinpath(experiment_path, "policies", "policies_pomdp_mdp.jld2")
 
-    # If policy doesn't exist, load from pomdp_mdp directory instead
     if !isfile(policy_path)
-        @warn "Policy file not found at $policy_path. Loading POMDP/MDP only."
-        pomdp_mdp_path = joinpath(experiment_path, "pomdp_mdp", "pomdp_mdp_$(lambda)_lambda.jld2")
-        if !isfile(pomdp_mdp_path)
-            error("Could not find POMDP/MDP file at $pomdp_mdp_path")
-        end
-        data = JLD2.load(pomdp_mdp_path)
-        return nothing, data["pomdp"], data["mdp"]
+        error("Policy file not found at $policy_path")
     end
 
-    @info "Loading policy from: $policy_path"
+    @info "Loading policies from: $policy_path"
     data = JLD2.load(policy_path)
-    return data["policy"], data["pomdp"], data["mdp"]
+    policy_bundle = data["all_policies"][solver_name]
+    return policy_bundle.policy, policy_bundle.pomdp, policy_bundle.mdp
 end
 
 # ----------------------------
@@ -93,7 +86,6 @@ config = setup_experiment_configs(
     training_config.solver_config.location;
     reward_lambdas=solver_reward_lambdas,
     sim_reward_lambdas=new_sim_reward_lambdas,
-    solver_growth_rate=training_config.solver_config.growthRate,
     solver_reproduction_rate=training_config.solver_config.reproduction_rate,
     solver_regulation_limit=training_config.solver_config.regulation_limit,
 )
@@ -101,7 +93,6 @@ config = setup_experiment_configs(
 # Overwrite with training solver config and custom simulation settings
 config.solver_config = training_config.solver_config
 config.simulation_config = new_sim_config
-config.lambda_values = training_config.lambda_values
 config.policies_dir = training_config.policies_dir
 config.simulations_dir = joinpath("results", "experiments", new_experiment_name, "simulation_histories")
 config.results_dir = joinpath("results", "experiments", new_experiment_name, "avg_results")
@@ -118,7 +109,9 @@ algorithms = define_algorithms(config)
 @info "  - Using simulation reward lambdas: $(config.simulation_config.sim_reward_lambdas)"
 @info "  - Running $(config.simulation_config.num_episodes) episodes"
 
-parallel_data = simulate_all_policies(algorithms, config)
+policies_path = joinpath(config.policies_dir, "policies_pomdp_mdp.jld2")
+all_policies = JLD2.load(policies_path)["all_policies"]
+parallel_data = simulate_all_policies(algorithms, config, all_policies)
 
 # Evaluate simulation results
 if config.simulation_config.high_fidelity_sim
