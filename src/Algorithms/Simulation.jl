@@ -23,10 +23,10 @@ using Random
 function initialize_belief(sim_pomdp, config)
     if config.simulation_config.high_fidelity_sim
         return (
-            sim_pomdp.adult_mean + sim_pomdp.adult_dist, # adult
-            sim_pomdp.motile_mean + sim_pomdp.motile_dist, # motile
-            sim_pomdp.sessile_mean + sim_pomdp.sessile_dist, # sessile
-            get_temperature(sim_pomdp.production_start_week, sim_pomdp.location) + sim_pomdp.temp_dist, # temperature
+            adult = sim_pomdp.adult_mean + sim_pomdp.adult_dist,
+            motile = sim_pomdp.motile_mean + sim_pomdp.motile_dist,
+            sessile = sim_pomdp.sessile_mean + sim_pomdp.sessile_dist,
+            temperature = get_temperature(sim_pomdp.production_start_week, sim_pomdp.location) + sim_pomdp.temp_dist,
         )
     else
         return initialstate(sim_pomdp)

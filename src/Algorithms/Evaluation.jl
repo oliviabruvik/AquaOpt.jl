@@ -356,16 +356,16 @@ function print_histories(data, config)
                     sp_pred = round(sp.SeaLiceLevel, digits=2)
 
                     # Belief
-                    b_adult = round(b.μ[1], digits=2)
-                    b_motile = round(b.μ[2], digits=2)
-                    b_sessile = round(b.μ[3], digits=2)
-                    b_temp = round(b.μ[4], digits=2)
+                    b_adult = round(b.μ[BELIEF_IDX_ADULT], digits=2)
+                    b_motile = round(b.μ[BELIEF_IDX_MOTILE], digits=2)
+                    b_sessile = round(b.μ[BELIEF_IDX_SESSILE], digits=2)
+                    b_temp = round(b.μ[BELIEF_IDX_TEMPERATURE], digits=2)
 
                     # New belief
-                    bp_adult = round(bp.μ[1], digits=2)
-                    bp_motile = round(bp.μ[2], digits=2)
-                    bp_sessile = round(bp.μ[3], digits=2)
-                    bp_temp = round(bp.μ[4], digits=2)
+                    bp_adult = round(bp.μ[BELIEF_IDX_ADULT], digits=2)
+                    bp_motile = round(bp.μ[BELIEF_IDX_MOTILE], digits=2)
+                    bp_sessile = round(bp.μ[BELIEF_IDX_SESSILE], digits=2)
+                    bp_temp = round(bp.μ[BELIEF_IDX_TEMPERATURE], digits=2)
 
                     # Create table with state, observation, belief, and new state information
                     # Save to file with filepath
