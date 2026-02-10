@@ -180,9 +180,9 @@ function setup_experiment_configs(experiment_name, log_space, ekf_filter=true, m
         regulatory_violation_cost_MNOK=regulatory_violation_cost_MNOK,
         welfare_cost_MNOK=welfare_cost_MNOK,
         chronic_lice_cost_MNOK=chronic_lice_cost_MNOK,
-        heuristic_belief_threshold_mechanical=0.45,
-        heuristic_belief_threshold_chemical=0.4,
-        heuristic_belief_threshold_thermal=0.475,
+        heuristic_belief_threshold_mechanical=0.4,
+        heuristic_belief_threshold_chemical=0.2,
+        heuristic_belief_threshold_thermal=0.6,
         full_observability_solver=false,
     )
     sim_cfg = SimulationConfig(

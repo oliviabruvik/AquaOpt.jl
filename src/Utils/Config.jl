@@ -101,10 +101,10 @@ end
     QMDP_max_iterations::Int = 30
 
     # Heuristic parameters
-    heuristic_threshold::Float64 = 0.5
-    heuristic_belief_threshold_mechanical::Float64 = 0.3
-    heuristic_belief_threshold_chemical::Float64 = 0.35
-    heuristic_belief_threshold_thermal::Float64 = 0.4
+    heuristic_threshold::Float64 = 0.3
+    heuristic_belief_threshold_mechanical::Float64 = 0.4
+    heuristic_belief_threshold_chemical::Float64 = 0.2
+    heuristic_belief_threshold_thermal::Float64 = 0.6
     heuristic_rho::Float64 = 0.8
 end
 
