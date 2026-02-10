@@ -175,6 +175,10 @@ function extract_reward_metrics(data, config, sim_pomdp=nothing)
         end
     end
 
+    # Save processed data
+    mkpath(config.results_dir)
+    @save joinpath(config.results_dir, "processed_data.jld2") processed_data
+
     return processed_data
 
 end

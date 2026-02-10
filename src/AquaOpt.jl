@@ -137,6 +137,7 @@ function main(;log_space=true, experiment_name="exp", mode="debug", location="so
         plot_plos_one_plots(processed_data, config, algorithms)
     end
 
+    return config
 end
 
 # ----------------------------
