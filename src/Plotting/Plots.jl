@@ -28,6 +28,7 @@ function plot_plos_one_plots(parallel_data, config, algorithms; policies_to_plot
 
     if sarsop_name !== nothing
         plos_one_plot_kalman_filter_belief_trajectory(parallel_data, sarsop_name, config)
+        plos_one_plot_kalman_filter_belief_trajectory(parallel_data, sarsop_name, config, num_sigmas=1)
         plos_one_algo_sealice_levels_over_time(parallel_data, config, sarsop_name)
         plos_one_policy_decision_map(parallel_data, config, sarsop_name)
     end

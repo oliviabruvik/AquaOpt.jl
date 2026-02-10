@@ -209,7 +209,7 @@ end
 # Plot 1: Time series of belief means and variances using PGFPlotsX
 # Creates side-by-side plots showing belief trajectories for Adult, Motile, and Sessile
 # ----------------------------
-function plos_one_plot_kalman_filter_belief_trajectory(data, algo_name, config)
+function plos_one_plot_kalman_filter_belief_trajectory(data, algo_name, config; num_sigmas::Int=3)
 
     # Filter the data to only include the algorithm
     data = filter(row -> row.policy == algo_name, data)
@@ -279,10 +279,10 @@ function plos_one_plot_kalman_filter_belief_trajectory(data, algo_name, config)
     # Time steps
     time_steps = 1:size(belief_means, 1)
     
-    # Plot belief mean with ±3σ confidence band
+    # Plot belief mean with ±num_sigmasσ confidence band
     sigma = sqrt.(belief_variances_array[:, i])
-    belief_upper = belief_means[:, i] .+ 3 .* sigma
-    belief_lower = belief_means[:, i] .- 3 .* sigma
+    belief_upper = belief_means[:, i] .+ num_sigmas .* sigma
+    belief_lower = belief_means[:, i] .- num_sigmas .* sigma
     
     # Filter out NaN and infinite values
     valid_indices = .!isnan.(belief_means[:, i]) .&& .!isnan.(belief_upper) .&& .!isnan.(belief_lower) .&& 
@@ -304,14 +304,14 @@ function plos_one_plot_kalman_filter_belief_trajectory(data, algo_name, config)
         push!(ax, @pgf("\\addplot[name path=lower, draw=none, forget plot] coordinates {$(lower_coords)};"))
         push!(ax, @pgf("\\addplot[forget plot, fill=$(belief_fill_color), fill opacity=$(PLOS_FILL_OPACITY)] fill between[of=upper and lower];"))
         push!(ax, @pgf("\\addlegendimage{area legend, draw=$(belief_line_color), fill=$(belief_fill_color), fill opacity=$(PLOS_FILL_OPACITY)}"))
-        push!(ax, @pgf(raw"\addlegendentry{Belief $\pm 3\sigma$}"))
+        push!(ax, @pgf("\\addlegendentry{Belief \$\\pm $(num_sigmas)\\sigma\$}"))
         
         # Add the mean line
         push!(ax, @pgf("\\addplot[draw=$(belief_line_color), mark=none, line width=1.2pt] coordinates {$(mean_coords)};"))
         push!(ax, @pgf("\\addlegendentry{Belief mean}"))
     else
         push!(ax, @pgf("\\addlegendimage{area legend, draw=$(belief_line_color), fill=$(belief_fill_color), fill opacity=$(PLOS_FILL_OPACITY)}"))
-        push!(ax, @pgf(raw"\addlegendentry{Belief $\pm 3\sigma$}"))
+        push!(ax, @pgf("\\addlegendentry{Belief \$\\pm $(num_sigmas)\\sigma\$}"))
         push!(ax, @pgf("\\addlegendimage{draw=$(belief_line_color), line width=1.2pt}"))
         push!(ax, @pgf("\\addlegendentry{Belief mean}"))
     end
@@ -347,8 +347,8 @@ function plos_one_plot_kalman_filter_belief_trajectory(data, algo_name, config)
     # Save the plot
     mkpath("Quick_Access")
     mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
-    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "north_sarsop_kalman_filter_belief_trajectory.pdf"), ax)
-    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "north_sarsop_kalman_filter_belief_trajectory.tex"), ax; include_preamble=false)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "north_sarsop_kalman_filter_belief_trajectory_$(num_sigmas)sigmas.pdf"), ax)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "north_sarsop_kalman_filter_belief_trajectory_$(num_sigmas)sigmas.tex"), ax; include_preamble=false)
     return ax
 end
 
@@ -1272,10 +1272,10 @@ end
 
 
 # ----------------------------
-# Kalman Filter Trajectory with 3σ Confidence Band
-# Shows ground truth, noisy observations, KF estimate, and 3σ uncertainty
+# Kalman Filter Trajectory with num_sigmas σ Confidence Band
+# Shows ground truth, noisy observations, KF estimate, and num_sigmas σ uncertainty
 # ----------------------------
-function plot_kalman_filter_trajectory_with_uncertainty(data, algo_name, config)
+function plot_kalman_filter_trajectory_with_uncertainty(data, algo_name, config, num_sigmas=3)
     
     # Filter the data to only include the algorithm
     data = filter(row -> row.policy == algo_name, data)
@@ -1318,7 +1318,7 @@ function plot_kalman_filter_trajectory_with_uncertainty(data, algo_name, config)
     ax = @pgf Axis(Options(
         :width => "18cm",
         :height => "6cm",
-        :title => "Kalman Filter Estimation Error with 3σ Uncertainty Band",
+        :title => "Kalman Filter Estimation Error with ($num_sigmas)σ Uncertainty Band",
         :title_style => "color=black",
         :xlabel => "Time of Year",
         :ylabel => "Estimation Error (True - KF Mean)",
@@ -1338,19 +1338,19 @@ function plot_kalman_filter_trajectory_with_uncertainty(data, algo_name, config)
     # Calculate estimation error (true - KF mean)
     estimation_error = states_df[:, i] .- belief_means[:, i]
     
-    # Calculate 3σ confidence band for the error
-    error_upper_3sigma = 3 .* sqrt.(belief_variances_array[:, i])
-    error_lower_3sigma = -3 .* sqrt.(belief_variances_array[:, i])
+    # Calculate num_sigmas * σ confidence band for the error
+    error_upper_num_sigmas = num_sigmas .* sqrt.(belief_variances_array[:, i])
+    error_lower_num_sigmas = -num_sigmas .* sqrt.(belief_variances_array[:, i])
     
     # Filter out NaN and infinite values
-    valid_indices = .!isnan.(estimation_error) .&& .!isnan.(error_upper_3sigma) .&& .!isnan.(error_lower_3sigma) .&& 
-                   .!isinf.(estimation_error) .&& .!isinf.(error_upper_3sigma) .&& .!isinf.(error_lower_3sigma)
+    valid_indices = .!isnan.(estimation_error) .&& .!isnan.(error_upper_num_sigmas) .&& .!isnan.(error_lower_num_sigmas) .&& 
+                   .!isinf.(estimation_error) .&& .!isinf.(error_upper_num_sigmas) .&& .!isinf.(error_lower_num_sigmas)
     
     if sum(valid_indices) > 0
         valid_time_steps = time_steps[valid_indices]
         valid_errors = estimation_error[valid_indices]
-        valid_upper = error_upper_3sigma[valid_indices]
-        valid_lower = error_lower_3sigma[valid_indices]
+        valid_upper = error_upper_num_sigmas[valid_indices]
+        valid_lower = error_lower_num_sigmas[valid_indices]
 
         # Create coordinate strings with valid data only
         error_coords = join(["($(t), $(valid_errors[j]))" for (j, t) in enumerate(valid_time_steps)], " ")
@@ -1375,8 +1375,8 @@ function plot_kalman_filter_trajectory_with_uncertainty(data, algo_name, config)
     # Save the plot
     mkpath(joinpath(config.figures_dir, "Plos_One_Plots"))
     mkpath("Quick_Access")
-    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "kalman_filter_trajectory_3sigma_$(algo_name)_latex.pdf"), ax)
-    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "kalman_filter_trajectory_3sigma_$(algo_name)_latex.tex"), ax; include_preamble=false)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "kalman_filter_trajectory_($num_sigmas)sigma_$(algo_name)_latex.pdf"), ax)
+    PGFPlotsX.save(joinpath(config.figures_dir, "Plos_One_Plots", "kalman_filter_trajectory_($num_sigmas)sigma_$(algo_name)_latex.tex"), ax; include_preamble=false)
     return ax
 end
 
