@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.21
+# v0.20.20
 
 using Markdown
 using InteractiveUtils
@@ -56,7 +56,7 @@ md"""
 
 # ╔═╡ 34f769c5-2a81-43cf-ae03-0380e3cc6896
 begin
-	experiment_path = "results/experiments/2026-02-09/2026-02-09T16:42:22.732_baseline_norway_north_debug_north_[0.2, 0.2, 0.2, 0.2, 0.2]"
+	experiment_path = "results/experiments/2026-02-09/2026-02-09T18:36:06.184_baseline_norway_north_paper_north_[0.2, 0.2, 0.2, 0.2, 0.2]"
 	config_path = joinpath(experiment_path, "config/experiment_config.jld2")
 	sim_data_path = joinpath(experiment_path, "simulation_histories/all_policies_simulation_data.jld2")
 end
@@ -159,8 +159,8 @@ plot_kalman_filter_trajectory_with_uncertainty(processed_data, "Native_SARSOP_Po
 # ╔═╡ 102a2969-4626-4461-96db-0539f03b3186
 plot_kalman_filter_belief_trajectory_two_panel(processed_data, "Native_SARSOP_Policy", config)
 
-# ╔═╡ e0423dbc-5d25-4c0b-8d19-4b18ef5c56c2
-plos_one_sarsop_dominant_action(processed_data, config)
+# ╔═╡ 85f371ce-4f83-4932-92ef-4b22d994d21b
+algo_name = "Native_SARSOP_Policy"
 
 # ╔═╡ f35c8ed7-8fbf-473d-adc7-7e3041597257
 md"""
@@ -181,7 +181,7 @@ md"""
 """
 
 # ╔═╡ 58ac5036-29f7-4778-a57f-0cc88eda3177
-plos_one_plot_kalman_filter_belief_trajectory(processed_data, "NUS_SARSOP_Policy", config)
+plos_one_plot_kalman_filter_belief_trajectory(processed_data, "Native_SARSOP_Policy", config)
 
 # ╔═╡ 2b69136a-37c2-4654-b38f-737b06147dc6
 md"""
@@ -206,10 +206,19 @@ md"""
 """
 
 # ╔═╡ 348cad19-1ffb-4d12-96e7-c950ef261389
-plos_one_sarsop_dominant_action(parallel_data, config)
+plos_one_policy_decision_map(processed_data, config, algo_name)
 
 # ╔═╡ a519ab83-4cb4-452e-bf24-de5b73653681
 plos_one_treatment_distribution_comparison(parallel_data, config)
+
+# ╔═╡ ec211f93-6352-48ff-b059-a04128f5a22d
+Revise.retry()
+
+# ╔═╡ aa903860-662a-48aa-94d9-e0e3f6798b5d
+plos_one_economic_comparison(
+        parallel_data,
+        config
+    )
 
 # ╔═╡ Cell order:
 # ╟─cc902235-e492-46cb-a279-b69b1230b93d
@@ -225,7 +234,7 @@ plos_one_treatment_distribution_comparison(parallel_data, config)
 # ╠═e69d2cb4-feed-401e-b1aa-a7de6fdd40c7
 # ╠═7c78c1d1-f5a1-405a-b678-f4ba1bd0113c
 # ╠═102a2969-4626-4461-96db-0539f03b3186
-# ╠═e0423dbc-5d25-4c0b-8d19-4b18ef5c56c2
+# ╠═85f371ce-4f83-4932-92ef-4b22d994d21b
 # ╟─f35c8ed7-8fbf-473d-adc7-7e3041597257
 # ╠═7843da50-8d48-42a2-b032-7d057ba0f393
 # ╠═695ff0c4-2660-4e2c-98a0-04fb09b44de0
@@ -239,3 +248,5 @@ plos_one_treatment_distribution_comparison(parallel_data, config)
 # ╟─9e938b25-ccc0-48b8-96c5-c8397de01cce
 # ╠═348cad19-1ffb-4d12-96e7-c950ef261389
 # ╠═a519ab83-4cb4-452e-bf24-de5b73653681
+# ╠═ec211f93-6352-48ff-b059-a04128f5a22d
+# ╠═aa903860-662a-48aa-94d9-e0e3f6798b5d
