@@ -123,7 +123,7 @@ fmt_mean_ci(m_val::Real, c::Real; digits::Int=2) =
     @sprintf("%.*f \$\\pm\$ %.*f", digits, Float64(m_val), digits, Float64(c))
 bold_tex(s::String) = "\\textbf{" * s * "}"
 
-# TeX math wrapper: m(raw"\sigma_T") → "$\sigma_T$"
+# TeX math wrapper: m(raw"\sigma_{\text{T}}") → "$\sigma_T$"
 m(s::String) = "\$" * s * "\$"
 
 # --- Inline pgfplotstabletypeset .tex builder ---------------------------------
@@ -215,7 +215,7 @@ function generate_solver_parameters(config::ExperimentConfig)
             fmt(sc.discount_factor; digits=2),
             fmt(sc.regulation_limit; digits=2),
             fmt_array(sc.season_regulation_limits),
-            fmt(sc.reproduction_rate; digits=2),
+            fmt(sc.reproduction_rate; digits=1),
             fmt(sc.discretization_step; digits=2),
             fmt(sc.adult_sd; digits=2),
             fmt_array(sc.reward_lambdas),
@@ -232,7 +232,7 @@ function generate_solver_parameters(config::ExperimentConfig)
         label="tab:solver_parameters",
         column_specs=[
             ("parameter", "Parameter", "string type"),
-            ("value", "Value", "string type"),
+            ("value", "Value", "string type, column type=r"),
         ],
     )
 end
@@ -269,7 +269,7 @@ function generate_solver_runtime(config::ExperimentConfig)
         label="tab:solver_runtime",
         column_specs=[
             ("parameter", "Parameter", "string type"),
-            ("value", "Value", "string type"),
+            ("value", "Value", "string type, column type=r"),
         ],
     )
 end
@@ -283,7 +283,7 @@ function generate_fish_population(config::ExperimentConfig)
         parameter = [
             "Asymptotic weight ($(m("w_{\\max}")))",
             "Growth rate ($(m("k_g")))",
-            "Temperature sensitivity ($(m(raw"\alpha_T")))",
+            "Temperature sensitivity ($(m(raw"\alpha_{\text{T}}")))",
             "Natural mortality rate",
             "Treatment mortality bump",
             "Production start week",
@@ -328,7 +328,7 @@ function generate_fish_population(config::ExperimentConfig)
         label="tab:fish_population_params",
         column_specs=[
             ("parameter", "Parameter", "string type"),
-            ("value", "Value", "string type"),
+            ("value", "Value", "string type, column type=r"),
             ("description", "Description", "string type"),
             ("source", "Source", "string type"),
         ],
@@ -355,12 +355,12 @@ function generate_sea_lice_biology(config::ExperimentConfig)
         ],
         value = [
             fmt(params.s1_sessile; digits=2),
-            fmt(params.s2_scaling; digits=1),
+            fmt(params.s2_scaling; digits=2),
             fmt(params.s3_motile; digits=2),
             fmt(params.s4_adult; digits=2),
-            fmt(params.d1_intercept; digits=1),
+            fmt(params.d1_intercept; digits=2),
             fmt(params.d1_temp_coef; digits=2),
-            fmt(params.d2_intercept; digits=1),
+            fmt(params.d2_intercept; digits=2),
             fmt(params.d2_temp_coef; digits=3),
             fmt(9.0; digits=1),
         ],
@@ -384,7 +384,7 @@ function generate_sea_lice_biology(config::ExperimentConfig)
         column_specs=[
             ("section", "Category", "string type"),
             ("parameter", "Parameter", "string type"),
-            ("value", "Value", "string type"),
+            ("value", "Value", "string type, column type=r"),
             ("description", "Description", "string type"),
             ("source", "Source", "string type"),
         ],
@@ -402,16 +402,16 @@ function generate_observation_parameters(config::ExperimentConfig)
         ],
         parameter = [
             "Fish sampled ($(m("n")))",
-            "$(m(raw"\rho_A"))",
-            "$(m(raw"\rho_M"))",
-            "$(m(raw"\rho_S"))",
+            "$(m(raw"\rho_{\text{A}}"))",
+            "$(m(raw"\rho_{\text{M}}"))",
+            "$(m(raw"\rho_{\text{S}}"))",
             "Farm intercept ($(m(raw"\beta_0")))",
             "Weight slope ($(m(raw"\beta_1")))",
-            "Weight centering ($(m("W_0")))",
-            "Mean fish weight ($(m("W_{\\text{mean}}")))",
-            "Temperature noise ($(m(raw"\sigma_T")))",
-            "Fish count noise ($(m(raw"\sigma_N")))",
-            "Weight noise ($(m(raw"\sigma_W")))",
+            "Weight centering ($(m("w_0")))",
+            "Mean fish weight ($(m("w_{\\text{mean}}")))",
+            "Temperature noise ($(m(raw"\sigma_{\text{T}}")))",
+            "Fish count noise ($(m(raw"\sigma_{\text{N}}")))",
+            "Weight noise ($(m(raw"\sigma_{\text{W}}")))",
         ],
         value = [
             string(sim.n_sample),
@@ -423,7 +423,7 @@ function generate_observation_parameters(config::ExperimentConfig)
             fmt(sim.W0; digits=2),
             fmt(sim.mean_fish_weight_kg; digits=2),
             fmt(sim.temp_sd; digits=2),
-            fmt(sim_pomdp.number_of_fish_sd; digits=1),
+            fmt(sim_pomdp.number_of_fish_sd; digits=2),
             fmt(sim_pomdp.weight_sd; digits=2),
         ],
         description = [
@@ -452,7 +452,7 @@ function generate_observation_parameters(config::ExperimentConfig)
         column_specs=[
             ("section", "Category", "string type"),
             ("parameter", "Parameter", "string type"),
-            ("value", "Value", "string type"),
+            ("value", "Value", "string type, column type=r"),
             ("description", "Description", "string type"),
             ("source", "Source", "string type"),
         ],
@@ -463,7 +463,7 @@ function generate_regional_dynamics()
     params = Dict(loc => get_location_params(loc) for loc in LOCATION_ORDER)
     # Only include parameters that vary across regions
     fields = [
-        ("Mean temperature ($(m("T_{\\text{mean}}")))",     :T_mean,          2, "Average annual sea temperature (\\si{\\celsius})"),
+        ("Mean temperature ($(m("t_{\\text{mean}}")))",     :T_mean,          1, "Average annual sea temperature (\\si{\\celsius})"),
         ("External larval influx",                          :external_influx, 2, "Weekly external sessile influx"),
     ]
     df = DataFrame(
@@ -503,9 +503,9 @@ function generate_regional_environment()
         label="tab:region_environment_params",
         column_specs=[
             ("region",  "Region",                                                       "string type"),
-            ("tmean",   "\$T_{\\text{mean}}\$ (\\si{\\celsius})",                       "string type"),
-            ("tamp",    "\$T_{\\text{amp}}\$ (\\si{\\celsius})",                        "string type"),
-            ("peakwk",  "\$W_{\\text{peak}}\$ (week)",                                  "string type"),
+            ("tmean",   "\$t_{\\text{mean}}\$ (\\si{\\celsius})",                       "string type"),
+            ("tamp",    "\$t_{\\text{amp}}\$ (\\si{\\celsius})",                        "string type"),
+            ("peakwk",  "\$w_{\\text{peak}}\$ (week)",                                  "string type"),
             ("extinfl", "\$\\lambda_{\\text{ext}}\$",                                   "string type"),
         ],
         note="External influx values are model assumptions calibrated to reflect warmer-region larval pressure.",
@@ -517,23 +517,23 @@ function generate_noise_parameters(config::ExperimentConfig)
     sim_pomdp = AquaOpt.SeaLiceSimPOMDP(location=config.solver_config.location)
     df = DataFrame(
         noiseterm = [
-            "$(m(raw"\sigma_A")) (measurement)",
-            "$(m(raw"\sigma_{A,\text{obs}}")) (biological)",
-            "$(m(raw"\sigma_M")) (measurement)",
-            "$(m(raw"\sigma_{M,\text{obs}}")) (biological)",
-            "$(m(raw"\sigma_S")) (measurement)",
-            "$(m(raw"\sigma_{S,\text{obs}}")) (biological)",
-            m(raw"\sigma_T"),
-            m(raw"\sigma_W"),
-            m(raw"\sigma_N"),
+            "$(m(raw"\sigma_{\text{A}}")) (measurement)",
+            "$(m(raw"\sigma_{\text{A},\text{obs}}")) (biological)",
+            "$(m(raw"\sigma_{\text{M}}")) (measurement)",
+            "$(m(raw"\sigma_{\text{M},\text{obs}}")) (biological)",
+            "$(m(raw"\sigma_{\text{S}}")) (measurement)",
+            "$(m(raw"\sigma_{\text{S},\text{obs}}")) (biological)",
+            m(raw"\sigma_{\text{T}}"),
+            m(raw"\sigma_{\text{W}}"),
+            m(raw"\sigma_{\text{N}}"),
         ],
         value = [
             fmt(sim.adult_sd; digits=2),
-            fmt(sim.adult_obs_sd; digits=3),
+            fmt(sim.adult_obs_sd; digits=2),
             fmt(sim.motile_sd; digits=2),
-            fmt(sim.motile_obs_sd; digits=3),
+            fmt(sim.motile_obs_sd; digits=2),
             fmt(sim.sessile_sd; digits=2),
-            fmt(sim.sessile_obs_sd; digits=3),
+            fmt(sim.sessile_obs_sd; digits=2),
             fmt(sim.temp_sd; digits=2),
             fmt(sim_pomdp.weight_sd; digits=2),
             fmt(sim_pomdp.number_of_fish_sd; digits=2),
@@ -556,7 +556,7 @@ function generate_noise_parameters(config::ExperimentConfig)
         label="tab:noise_params",
         column_specs=[
             ("noiseterm",   "Noise Term",   "string type"),
-            ("value",       "Value",        "string type"),
+            ("value",       "Value",        "string type, column type=r"),
             ("description", "Description",  "string type"),
         ],
         wide=false,
@@ -683,9 +683,9 @@ function generate_country_regulatory()
             "Salmon price (MNOK/tonne)",
         ],
         norway = [
-            "[0.2, 0.5, 0.5, 0.5]",
+            "[0.20, 0.50, 0.50, 0.50]",
             "10.0",
-            "0.07",
+            "0.070",
         ],
         scotland = [
             "[1.0, 2.0, 2.0, 2.0]",
@@ -695,7 +695,7 @@ function generate_country_regulatory()
         chile = [
             "[3.0, 3.0, 3.0, 3.0]",
             "5.0",
-            "0.05",
+            "0.050",
         ],
     )
     write_table(df;
@@ -732,7 +732,7 @@ function generate_reward_components()
         defaultval = [
             "1.5 / 2.5 / 4.0",
             "10.0",
-            "0.07",
+            "0.070",
             "1.0",
             "0.5",
         ],
@@ -758,7 +758,7 @@ function generate_reward_components()
         column_specs=[
             ("component",   "Component",     "string type"),
             ("description", "Description",   "string type"),
-            ("defaultval",  "Value",         "string type"),
+            ("defaultval",  "Value",         "string type, column type=r"),
             ("unit",        "Unit",          "string type"),
             ("source",      "Source",        "string type"),
         ],

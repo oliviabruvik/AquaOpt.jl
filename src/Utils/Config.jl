@@ -156,7 +156,7 @@ end
 # ----------------------------
 # Experiment struct (combines solver and simulation configs)
 # ----------------------------
-@with_kw struct ExperimentConfig
+@with_kw mutable struct ExperimentConfig
     # Configurations
     solver_config::SolverConfig = SolverConfig()
     simulation_config::SimulationConfig = SimulationConfig()

@@ -17,7 +17,7 @@ using JLD2
 
 
 experiment_paths = [
-	"results/experiments/2025-11-17/2025-11-17T14:21:28.204_log_space_ekf_paper_north_[0.7, 2.0, 0.1, 0.1, 0.8]",
+	"results/experiments/2026-02-10/2026-02-10T00:00:54.226_regulation_chile_north_paper_north_[0.2, 0.2, 0.2, 0.2, 0.2]",
 ]
 
 # ----------------------------
@@ -78,26 +78,16 @@ new_sim_config = SimulationConfig(
 new_experiment_name = "resim_$(Dates.format(now(), "yyyy-mm-ddTHH:MM:SS.sss"))"
 solver_reward_lambdas = training_config.solver_config.reward_lambdas
 
-config = setup_experiment_configs(
-    new_experiment_name,
-    training_config.solver_config.log_space,
-    training_config.simulation_config.ekf_filter,
-    "paper",
-    training_config.solver_config.location;
-    reward_lambdas=solver_reward_lambdas,
-    sim_reward_lambdas=new_sim_reward_lambdas,
-    solver_reproduction_rate=training_config.solver_config.reproduction_rate,
-    solver_regulation_limit=training_config.solver_config.regulation_limit,
+config = ExperimentConfig(
+    solver_config=training_config.solver_config,
+    simulation_config=new_sim_config,
+    experiment_name=new_experiment_name,
+    policies_dir=training_config.policies_dir,
+    simulations_dir=joinpath("results", "experiments", new_experiment_name, "simulation_histories"),
+    results_dir=joinpath("results", "experiments", new_experiment_name, "avg_results"),
+    figures_dir=joinpath("results", "experiments", new_experiment_name, "figures"),
+    experiment_dir=joinpath("results", "experiments", new_experiment_name),
 )
-
-# Overwrite with training solver config and custom simulation settings
-config.solver_config = training_config.solver_config
-config.simulation_config = new_sim_config
-config.policies_dir = training_config.policies_dir
-config.simulations_dir = joinpath("results", "experiments", new_experiment_name, "simulation_histories")
-config.results_dir = joinpath("results", "experiments", new_experiment_name, "avg_results")
-config.figures_dir = joinpath("results", "experiments", new_experiment_name, "figures")
-config.experiment_dir = joinpath("results", "experiments", new_experiment_name)
 
 # Define algorithms (same as original run)
 @info "Defining algorithms"
@@ -108,15 +98,16 @@ algorithms = define_algorithms(config)
 @info "  - Loading policies from: $(config.policies_dir)"
 @info "  - Using simulation reward lambdas: $(config.simulation_config.sim_reward_lambdas)"
 @info "  - Running $(config.simulation_config.num_episodes) episodes"
+@info "  - Saving to $(new_experiment_name)"
 
 policies_path = joinpath(config.policies_dir, "policies_pomdp_mdp.jld2")
 all_policies = JLD2.load(policies_path)["all_policies"]
-parallel_data = simulate_all_policies(algorithms, config, all_policies)
+parallel_data, sim_pomdp = simulate_all_policies(algorithms, config, all_policies)
 
 # Evaluate simulation results
-processed_data = extract_reward_metrics(parallel_data, config)
-display_reward_metrics(processed_data, config, false)
+processed_data = extract_reward_metrics(parallel_data, config, sim_pomdp)
+display_reward_metrics(processed_data, config, false, false)
 
-plot_plos_one_plots(parallel_data, config, algorithms)
+plot_plos_one_plots(processed_data, config, algorithms)
 
 @info "Simulation complete!"
